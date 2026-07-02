@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script> 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
 
 <style>
     /* =========================================
@@ -70,38 +71,13 @@
         border: 1px solid var(--border-color); box-shadow: var(--shadow-float); 
         position: relative;
     }
-    .custom-player { width: 100%; height: 100%; position: relative; background: #000; }
-    .custom-player video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+    .artplayer-app { width: 100%; height: 100%; }
 
-    .player-live-badge {
-        position: absolute; top: 14px; left: 14px; z-index: 15;
-        display: flex; align-items: center; gap: 6px;
-        background: rgba(0,0,0,0.55); padding: 6px 12px; border-radius: 6px;
-        color: #ef4444; font-weight: 800; font-size: 12px; letter-spacing: 1px;
-        pointer-events: none;
+    .art-control-playAndPause, 
+    .art-control-progress, 
+    .art-control-time { 
+        display: none !important; 
     }
-    .player-live-badge .dot { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite; }
-
-    .player-controls-bar {
-        position: absolute; bottom: 0; left: 0; width: 100%; z-index: 15;
-        display: flex; align-items: center; justify-content: flex-end; gap: 10px;
-        padding: 12px 14px;
-        background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
-    }
-    .player-ctrl-btn {
-        background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
-        color: #fff; width: 36px; height: 36px; border-radius: 8px; cursor: pointer;
-        display: flex; align-items: center; justify-content: center; font-size: 14px;
-        transition: background 0.2s ease;
-    }
-    .player-ctrl-btn:hover { background: rgba(255,255,255,0.18); }
-
-    .player-quality-select {
-        background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
-        color: #fff; border-radius: 8px; padding: 0 10px; height: 36px; font-size: 12px;
-        font-family: inherit; cursor: pointer;
-    }
-    .player-quality-select option { background: #18181b; color: #fff; }
 
     /* =========================================
        3. METADATA & CONTROLS
@@ -268,10 +244,7 @@
   <a href="live_event" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Events</a>
 
   <div id="player-container">
-     <div class="standby-screen">
-        <i class="fas fa-circle-notch fa-spin" style="font-size: 28px; margin-bottom: 12px; opacity: 0.6;"></i>
-        <h2>Loading...</h2>
-     </div>
+     <div class="artplayer-app"></div>
   </div>
 
   <div class="meta-container">
@@ -311,7 +284,7 @@ const urlParams = new URLSearchParams(window.location.search);
 let currentEventId = urlParams.get('v');
 let providedUser = urlParams.get('u');
 
-let customPlayer = null; // { video, hls, root, destroy }
+let art = null;
 let currentServer = 1;
 let currentStreamUrl = "";
 let isListening = false;
@@ -328,7 +301,7 @@ const mySessionId = Date.now().toString() + Math.random().toString(36).substring
    (live_events/{eventId}/stream_url), awtomatikong susubukan
    ng page na hanapin ang live HLS feed mo sa AngelThump gamit
    ang username mo sa ibaba. Kapag na-detect na live ka, ilo-load
-   agad sa player. Kapag na-off/nawala ang stream, babalik sa
+   agad sa ArtPlayer. Kapag na-off/nawala ang stream, babalik sa
    standby at patuloy na mag-che-check hanggang bumalik ka ulit.
 
    Gumagamit ito ng totoong AngelThump API (api.angelthump.com/v2/streams/{channel})
@@ -451,8 +424,8 @@ function closeGuidelinesModal() {
     localStorage.setItem('zone_vault_guidelines_date', today); 
     document.getElementById('guidelines-modal').style.display = 'none';
     
-    if (customPlayer && customPlayer.video) { 
-        customPlayer.video.play().catch(() => {}); 
+    if(art) { 
+        art.play().catch(() => {}); 
     }
 }
 
@@ -484,7 +457,7 @@ if (!currentEventId || !providedUser) {
                                 viewerRef.onDisconnect().cancel(); 
                                 stopAngelThumpAutoDetect();
                                 
-                                if (customPlayer) { destroyCustomPlayer(); }
+                                if (art) { art.destroy(true); art = null; }
                                 alert("You logged in from another device. This session will be closed.");
                                 window.location.replace("live_event");
                             }
@@ -496,7 +469,7 @@ if (!currentEventId || !providedUser) {
                     isUserApproved = false;
                     stopAngelThumpAutoDetect();
                     
-                    if (customPlayer) { destroyCustomPlayer(); }
+                    if (art) { art.destroy(true); art = null; }
                     document.getElementById("player-container").innerHTML = ""; 
                     document.getElementById("main-content").style.display = "none";
                     
@@ -553,7 +526,7 @@ function renderActivePlayer() {
 
     const container = document.getElementById("player-container");
 
-    destroyCustomPlayer();
+    if (art) { art.destroy(true); art = null; }
 
     if (currentServer === 1) {
         if (currentStreamUrl.trim() === "") {
@@ -565,7 +538,8 @@ function renderActivePlayer() {
                 </div>
             `;
         } else {
-            setupCustomPlayer(currentStreamUrl);
+            container.innerHTML = `<div class="artplayer-app"></div>`;
+            setupArtplayer(currentStreamUrl);
         }
 
     } else if (currentServer === 2) {
@@ -580,104 +554,74 @@ function renderActivePlayer() {
     }
 }
 
-function destroyCustomPlayer() {
-    if (customPlayer) {
-        try { customPlayer.destroy(); } catch (e) {}
-        customPlayer = null;
-    }
-}
-
-function setupCustomPlayer(streamUrl) {
-    const container = document.getElementById("player-container");
-
-    container.innerHTML = `
-        <div class="custom-player" id="custom-player-root">
-            <video id="live-video" playsinline></video>
-            <div class="player-live-badge"><span class="dot"></span> LIVE</div>
-            <div class="static-watermark">${providedUser}</div>
-            <div class="player-controls-bar">
-                <select class="player-quality-select" id="quality-select" style="display:none;"></select>
-                <button class="player-ctrl-btn" id="mute-btn" title="Mute/Unmute"><i class="fas fa-volume-up"></i></button>
-                <button class="player-ctrl-btn" id="fullscreen-btn" title="Fullscreen"><i class="fas fa-expand"></i></button>
-            </div>
-        </div>
-    `;
-
-    const video = document.getElementById("live-video");
-    const playerRoot = document.getElementById("custom-player-root");
-    const qualitySelect = document.getElementById("quality-select");
-    const muteBtn = document.getElementById("mute-btn");
-    const fullscreenBtn = document.getElementById("fullscreen-btn");
-
-    // AUTOPLAY, hindi naka-mute, walang native controls (custom controls na lang)
-    video.muted = false;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.disablePictureInPicture = true;
-    video.controls = false;
-
-    let hls = null;
-
-    if (window.Hls && Hls.isSupported()) {
-        hls = new Hls();
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            video.play().catch(() => {});
-
-            if (hls.levels && hls.levels.length > 1) {
-                qualitySelect.style.display = "inline-block";
-                qualitySelect.innerHTML = '<option value="-1">Auto</option>' +
-                    hls.levels.map((l, i) => `<option value="${i}">${l.height}p</option>`).join("");
-                qualitySelect.onchange = () => {
-                    hls.currentLevel = parseInt(qualitySelect.value, 10);
-                };
+function setupArtplayer(streamUrl) {
+    art = new Artplayer({
+        container: '.artplayer-app',
+        url: streamUrl,
+        type: 'm3u8',
+        autoplay: true,
+        
+        fullscreen: true,
+        fullscreenWeb: false, 
+        volume: 0.8,          
+        setting: false,       
+        pip: false,           
+        playbackRate: false,  
+        aspectRatio: false,   
+        miniProgressBar: false,
+        
+        isLive: true,
+        theme: '#ffffff', 
+        controls: [
+            {
+                position: 'left',
+                index: 10,
+                html: '<div style="color:#ef4444; font-weight:800; font-size:12px; margin-left:10px; display:flex; align-items:center; gap:6px; letter-spacing: 1px;"><span style="width:8px;height:8px;background:#ef4444;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite;"></span> LIVE</div>',
             }
-        });
-
-        hls.on(Hls.Events.ERROR, function (event, data) {
-            if (data.fatal) {
-                // Kapag naputol ang stream (hinto sa OBS, atbp.) at
-                // AngelThump auto-detect mode tayo, bumalik sa standby
-                // at magpatuloy mag-poll para awtomatikong bumalik.
-                handleAngelThumpDrop();
+        ],
+        customType: {
+            m3u8: function (video, url, art) {
+                if (Hls.isSupported()) {
+                    if (art.hls) art.hls.destroy();
+                    const hls = new Hls(); hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
+                        levels.unshift({ default: true, html: 'Auto', index: -1 });
+                        art.controls.update({
+                            name: 'quality', index: 20, position: 'right', html: 'Quality',
+                            selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
+                        });
+                    });
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            // Kapag naputol ang stream (hinto sa OBS, atbp.) at
+                            // AngelThump auto-detect mode tayo, bumalik sa standby
+                            // at magpatuloy mag-poll para awtomatikong bumalik.
+                            handleAngelThumpDrop();
+                        }
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
             }
-        });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl;
-        video.addEventListener('loadedmetadata', () => video.play().catch(() => {}));
-    }
+        },
+        layers: [
+            {
+                name: 'username-watermark',
+                html: `<div class="static-watermark">${providedUser}</div>`,
+            }
+        ],
+    });
 
-    // WALANG PAUSE — live stream lang
-    video.addEventListener('pause', () => {
-        if (video.currentTime > 0) {
-            setTimeout(() => { video.play().catch(() => {}); }, 50);
+    art.on('video:pause', () => {
+        if (art.video.currentTime > 0) {
+            setTimeout(() => {
+                art.video.play().catch(() => {});
+                art.notice.show = 'Live streams cannot be paused.';
+            }, 50);
         }
     });
 
-    // Mute/unmute toggle (default hindi naka-mute)
-    muteBtn.addEventListener('click', () => {
-        video.muted = !video.muted;
-        muteBtn.innerHTML = video.muted ? '<i class="fas fa-volume-mute"></i>' : '<i class="fas fa-volume-up"></i>';
-    });
-
-    // FULLSCREEN + auto-lock sa landscape
-    fullscreenBtn.addEventListener('click', () => {
-        const isFs = document.fullscreenElement || document.webkitFullscreenElement;
-        if (!isFs) {
-            const req = playerRoot.requestFullscreen || playerRoot.webkitRequestFullscreen || playerRoot.msRequestFullscreen;
-            if (req) req.call(playerRoot);
-        } else {
-            const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-            if (exit) exit.call(document);
-        }
-    });
-
-    function handleFullscreenChange() {
-        const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-        fullscreenBtn.innerHTML = isFs ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
-        if (isFs) {
+    art.on('fullscreen', (state) => {
+        if (state) {
             if (screen.orientation && screen.orientation.lock) {
                 screen.orientation.lock('landscape').catch((e) => {
                     console.log('Orientation lock failed:', e);
@@ -688,21 +632,7 @@ function setupCustomPlayer(streamUrl) {
                 screen.orientation.unlock();
             }
         }
-    }
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-
-    customPlayer = {
-        video: video,
-        hls: hls,
-        root: playerRoot,
-        destroy: function () {
-            document.removeEventListener('fullscreenchange', handleFullscreenChange);
-            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-            if (hls) { try { hls.destroy(); } catch (e) {} }
-            try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
-        }
-    };
+    });
 }
 </script>
 </body>
