@@ -310,7 +310,7 @@ const mySessionId = Date.now().toString() + Math.random().toString(36).substring
    mag-guess ng region.
 */
 const ANGELTHUMP_USERNAME = "prdt"; // <-- palitan kung magbabago ang username mo sa AngelThump
-const ANGELTHUMP_POLL_MS = 10000; // 10s check interval
+const ANGELTHUMP_POLL_MS = 5000; // 5s check interval — mas mabilis makapag-detect ng start/stop
 
 let angelthumpPollTimer = null;
 let angelthumpSessionKey = null; // createdAt ng kasalukuyang live session (para malaman kung bagong session/reconnect)
@@ -534,7 +534,7 @@ function renderActivePlayer() {
                 <div class="standby-screen">
                     <i class="fas fa-broadcast-tower" style="font-size: 36px; margin-bottom: 16px; opacity: 0.5;"></i>
                     <h2>Standby</h2>
-                    <p>The stream link has not been activated by the admin yet.</p>
+                    <p>Admin is not starting the stream yet. Please wait.</p>
                 </div>
             `;
         } else {
