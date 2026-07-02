@@ -455,27 +455,24 @@ window.addEventListener("beforeunload", function() {
 });
 
 function startListeningToEvent(eventId) {
+    // Ginagamit na lang ito para sa TITLE ng stream. Ang aktwal na video
+    // source (Server 1) ay hindi na umaasa sa admin panel / Firebase —
+    // direktang AngelThump ang pinagkukunan, awtomatiko simula't sabay
+    // sa pag-start mo ng OBS.
     dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
         const ev = snapshot.val();
         if(!ev) { 
             document.getElementById("main-title").innerText = "Transmission Terminated."; 
             return; 
         }
-        
         document.getElementById("main-title").innerText = ev.stream_title || ev.title;
-        const manualUrl = (ev.stream_url || ev.url || "").trim();
-        
-        if (manualUrl !== "") {
-            // May manual URL na naka-set sa Firebase (admin override) — gamitin ito
-            // at itigil muna ang AngelThump auto-detect.
-            stopAngelThumpAutoDetect();
-            currentStreamUrl = manualUrl;
-            if (currentServer === 1 && isUserApproved) renderActivePlayer();
-        } else if (!angelthumpAutoModeActive) {
-            // Walang manual URL — awtomatikong hanapin ang live feed sa AngelThump.
-            startAngelThumpAutoDetect();
-        }
     });
+
+    // Awtomatikong simulan ang AngelThump auto-detect, hindi na naghihintay
+    // ng anumang manual na URL mula sa admin panel.
+    if (!angelthumpAutoModeActive) {
+        startAngelThumpAutoDetect();
+    }
 }
 
 function switchServer(serverNum) {
