@@ -327,7 +327,11 @@ function angelthumpDeriveManifest(data) {
     if (!user || !ingest || data.type !== "live") return null;
     const segment = btoa(data.createdAt + user.username) + "_" + user.username;
     const host = angelthumpRegionHost(ingest.server);
-    return { url: `https://${host}.angelthump.com/hls/${segment}/index.m3u8`, sessionKey: data.createdAt };
+    // Random na letra/token sa dulo bilang cache-buster lang — HINDI ito totoong
+    // access control. Kung may naka-inspect ng Network tab, gagana pa rin ang buong
+    // URL na 'yon nang direkta sa AngelThump CDN, kasama man o wala ang random part.
+    const randomToken = Math.random().toString(36).slice(2, 10);
+    return { url: `https://${host}.angelthump.com/hls/${segment}/index.m3u8?t=${randomToken}`, sessionKey: data.createdAt };
 }
 
 async function angelthumpFetchStream() {
@@ -344,12 +348,18 @@ async function angelthumpFetchStream() {
     }
 }
 
-async function pollAngelThump() {
+// Sinisimulan na ang unang fetch papunta sa AngelThump AGAD paglo-load ng script,
+// kahanay/parallel sa Firebase approval check sa ibaba (hindi na naghihintay
+// matapos muna yun). Sa ganitong paraan, pagka-approve ka, malamang ready na
+// agad ang stream data — walang dagdag na hintay.
+let angelthumpPreloadPromise = angelthumpFetchStream().catch(() => null);
+
+async function pollAngelThump(preloadedData) {
     if (!angelthumpAutoModeActive) return;
 
     try {
-        const data = await angelthumpFetchStream();
-        const manifest = angelthumpDeriveManifest(data);
+        const data = preloadedData !== undefined ? preloadedData : await angelthumpFetchStream();
+        const manifest = data ? angelthumpDeriveManifest(data) : null;
 
         if (manifest) {
             if (manifest.sessionKey !== angelthumpSessionKey) {
@@ -371,9 +381,17 @@ async function pollAngelThump() {
 
 function startAngelThumpAutoDetect() {
     angelthumpAutoModeActive = true;
-    pollAngelThump();
+
+    if (angelthumpPreloadPromise) {
+        // Gamitin muna yung fetch na sinimulan na noong page load pa lang
+        angelthumpPreloadPromise.then((data) => pollAngelThump(data));
+        angelthumpPreloadPromise = null;
+    } else {
+        pollAngelThump();
+    }
+
     if (angelthumpPollTimer) clearInterval(angelthumpPollTimer);
-    angelthumpPollTimer = setInterval(pollAngelThump, ANGELTHUMP_POLL_MS);
+    angelthumpPollTimer = setInterval(() => pollAngelThump(), ANGELTHUMP_POLL_MS);
 }
 
 function stopAngelThumpAutoDetect() {
