@@ -110,7 +110,7 @@
     }
 
     /* =========================================
-       4. STRICT WATERMARK SYSTEM (PINAGHIWALAY NA DESKTOP AT MOBILE)
+       4. STRICT WATERMARK SYSTEM
        ========================================= */
     @keyframes pulse { 
         0% { transform: scale(0.95); opacity: 0.5; } 
@@ -118,7 +118,6 @@
         100% { transform: scale(0.95); opacity: 0.5; } 
     }
 
-    /* BASE SETTINGS PARA SA WATERMARK (Laging naka-bottom left mode) */
     .static-watermark {
         position: absolute !important; 
         top: auto !important;
@@ -132,20 +131,18 @@
         pointer-events: none;
     }
 
-    /* ---> DESKTOP WATERMARK (Para lang sa malalaking screen) <--- */
     @media (min-width: 769px) {
         .static-watermark {
-            bottom: 70px !important;  /* Naka-angat para iwas sa controls */
+            bottom: 70px !important; 
             left: 40px !important;    
             font-size: 16px !important; 
         }
     }
 
-    /* ---> MOBILE WATERMARK (Hiwalay ang settings, ibinalik sa pinakababa) <--- */
     @media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
         .static-watermark { 
-            bottom: 20px !important;  /* Pinakababa para sa cellphone */
-            left: 12% !important;     /* Para pumasok lagpas sa black bars */
+            bottom: 20px !important; 
+            left: 12% !important;     
             font-size: 13px !important; 
         }
     }
@@ -241,7 +238,7 @@
 </div>
 
 <div class="player-layout" id="main-content" style="display: none;">
-  <a href="live_event" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Events</a>
+  <a href="index.html" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Login</a>
 
   <div id="player-container">
      <div class="artplayer-app"></div>
@@ -280,10 +277,6 @@ firebase.initializeApp(firebaseConfig);
 
 const dbRealtime = firebase.database();
 
-const urlParams = new URLSearchParams(window.location.search);
-let currentEventId = urlParams.get('v');
-let providedUser = urlParams.get('u');
-
 let art = null;
 let currentServer = 1;
 let currentStreamUrl = "";
@@ -296,25 +289,13 @@ const mySessionId = Date.now().toString() + Math.random().toString(36).substring
 
 /* =========================================
    ANGELTHUMP AUTO-DETECT (Server 1)
-   =========================================
-   Kapag walang manual na stream_url na naka-set sa Firebase
-   (live_events/{eventId}/stream_url), awtomatikong susubukan
-   ng page na hanapin ang live HLS feed mo sa AngelThump gamit
-   ang username mo sa ibaba. Kapag na-detect na live ka, ilo-load
-   agad sa ArtPlayer. Kapag na-off/nawala ang stream, babalik sa
-   standby at patuloy na mag-che-check hanggang bumalik ka ulit.
-
-   Gumagamit ito ng totoong AngelThump API (api.angelthump.com/v2/streams/{channel})
-   para makuha ang ingest server at createdAt ng kasalukuyang live session,
-   tapos kino-compute dito ang tamang HLS manifest URL — hindi na kailangan
-   mag-guess ng region.
-*/
-const ANGELTHUMP_USERNAME = "prdt"; // <-- palitan kung magbabago ang username mo sa AngelThump
-const ANGELTHUMP_POLL_MS = 5000; // 5s check interval — mas mabilis makapag-detect ng start/stop
+   ========================================= */
+const ANGELTHUMP_USERNAME = "prdt"; 
+const ANGELTHUMP_POLL_MS = 5000; 
 
 let angelthumpPollTimer = null;
-let angelthumpSessionKey = null; // createdAt ng kasalukuyang live session (para malaman kung bagong session/reconnect)
-let angelthumpAutoModeActive = false; // true kapag walang manual override na URL
+let angelthumpSessionKey = null; 
+let angelthumpAutoModeActive = false; 
 
 function angelthumpRegionHost(server) {
     const map = { nyc: "nyc3", sfo: "sfo3", ams: "ams3", tor: "tor1", blr: "blr1", syd: "syd1", fra: "fra1", lon: "lon1", sgp: "sgp1" };
@@ -327,9 +308,6 @@ function angelthumpDeriveManifest(data) {
     if (!user || !ingest || data.type !== "live") return null;
     const segment = btoa(data.createdAt + user.username) + "_" + user.username;
     const host = angelthumpRegionHost(ingest.server);
-    // Random na letra/token sa dulo bilang cache-buster lang — HINDI ito totoong
-    // access control. Kung may naka-inspect ng Network tab, gagana pa rin ang buong
-    // URL na 'yon nang direkta sa AngelThump CDN, kasama man o wala ang random part.
     const randomToken = Math.random().toString(36).slice(2, 10);
     return { url: `https://${host}.angelthump.com/hls/${segment}/index.m3u8?t=${randomToken}`, sessionKey: data.createdAt };
 }
@@ -341,17 +319,12 @@ async function angelthumpFetchStream() {
         if (!res.ok) throw 0;
         return await res.json();
     } catch (e) {
-        // fallback sa public CORS proxy kung na-block ng browser ang direktang request
         const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(endpoint), { cache: "no-store" });
         if (!res.ok) throw 0;
         return await res.json();
     }
 }
 
-// Sinisimulan na ang unang fetch papunta sa AngelThump AGAD paglo-load ng script,
-// kahanay/parallel sa Firebase approval check sa ibaba (hindi na naghihintay
-// matapos muna yun). Sa ganitong paraan, pagka-approve ka, malamang ready na
-// agad ang stream data — walang dagdag na hintay.
 let angelthumpPreloadPromise = angelthumpFetchStream().catch(() => null);
 
 async function pollAngelThump(preloadedData) {
@@ -363,27 +336,22 @@ async function pollAngelThump(preloadedData) {
 
         if (manifest) {
             if (manifest.sessionKey !== angelthumpSessionKey) {
-                // Bagong session (kasalukuyang nag-start o nag-reconnect) — i-load
                 angelthumpSessionKey = manifest.sessionKey;
                 currentStreamUrl = manifest.url;
                 if (currentServer === 1 && isUserApproved) renderActivePlayer();
             }
         } else if (angelthumpSessionKey !== null) {
-            // Naka-offline na — bumalik sa standby, magpatuloy pa rin mag-poll
             angelthumpSessionKey = null;
             currentStreamUrl = "";
             if (currentServer === 1 && isUserApproved) renderActivePlayer();
         }
-    } catch (e) {
-        // walang response / offline — huwag baguhin ang state, subukan ulit sa susunod na poll
-    }
+    } catch (e) {}
 }
 
 function startAngelThumpAutoDetect() {
     angelthumpAutoModeActive = true;
 
     if (angelthumpPreloadPromise) {
-        // Gamitin muna yung fetch na sinimulan na noong page load pa lang
         angelthumpPreloadPromise.then((data) => pollAngelThump(data));
         angelthumpPreloadPromise = null;
     } else {
@@ -400,9 +368,6 @@ function stopAngelThumpAutoDetect() {
     if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); angelthumpPollTimer = null; }
 }
 
-// Tinatawag ito kapag nag-fatal-error ang hls.js habang nasa auto mode
-// (halimbawa, biglang huminto ang OBS mo). Babalik sa standby at
-// magpapatuloy mag-poll para awtomatikong bumalik pag nag-reconnect ka.
 function handleAngelThumpDrop() {
     if (!angelthumpAutoModeActive) return;
     angelthumpSessionKey = null;
@@ -429,11 +394,34 @@ function closeGuidelinesModal() {
     }
 }
 
-if (!currentEventId || !providedUser) {
-    window.location.replace("live_event"); 
+/* =========================================
+   STRICT SECURITY & SESSION VALIDATION
+   ========================================= */
+const urlParams = new URLSearchParams(window.location.search);
+let currentEventId = urlParams.get('v');
+let providedUser = urlParams.get('u');
+
+// 1. Fetch the user's active login session from their browser
+let activeSessionUser = localStorage.getItem("zone_vault_user");
+
+// 2. IMMEDIATE LOCKOUT: Check if URL params exist AND if they match the logged-in user
+if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== activeSessionUser) {
+    document.body.innerHTML = `
+        <div style="display:flex; height:100vh; align-items:center; justify-content:center; background:#09090b; color:#ef4444; font-family:sans-serif; flex-direction:column;">
+            <i class="fas fa-ban" style="font-size: 50px; margin-bottom: 15px;"></i>
+            <h2>UNAUTHORIZED ACCESS</h2>
+            <p style="color:#a1a1aa; margin-top:10px;">You are not logged in or your session is invalid.</p>
+        </div>
+    `;
+    setTimeout(() => {
+        window.location.replace("index.html"); 
+    }, 2000);
 } else {
+    // 3. FIREBASE VALIDATION: If local session matches, check if they are actually approved by admin
     dbRealtime.ref("approved_users/" + providedUser).once("value").then((doc) => {
         if (doc.exists()) {
+            
+            // 4. EVENT ACCESS VALIDATION: Check if they are allowed in this specific event
             dbRealtime.ref(`event_access/${currentEventId}/${providedUser}`).on('value', (snap) => {
                 if (snap.val() === true) {
                     isUserApproved = true;
@@ -458,31 +446,46 @@ if (!currentEventId || !providedUser) {
                                 stopAngelThumpAutoDetect();
                                 
                                 if (art) { art.destroy(true); art = null; }
-                                alert("You logged in from another device. This session will be closed.");
-                                window.location.replace("live_event");
+                                alert("Security Alert: Your account was accessed from another device. This session will be terminated.");
+                                window.location.replace("index.html");
                             }
                         });
                         
                         isListening = true;
                     }
                 } else {
-                    isUserApproved = false;
-                    stopAngelThumpAutoDetect();
-                    
-                    if (art) { art.destroy(true); art = null; }
-                    document.getElementById("player-container").innerHTML = ""; 
-                    document.getElementById("main-content").style.display = "none";
-                    
-                    if(viewerRef && !isBooted) { viewerRef.remove(); }
-                    window.location.replace("live_event"); 
+                    triggerLockout("You do not have access to this specific event.");
                 }
             });
         } else {
-            window.location.replace("index.html"); 
+            triggerLockout("Your account has not been approved by the admin.");
         }
     }).catch(() => {
-        window.location.replace("index.html");
+        triggerLockout("Database connection error. Please try again.");
     });
+}
+
+function triggerLockout(message) {
+    isUserApproved = false;
+    stopAngelThumpAutoDetect();
+    if (art) { art.destroy(true); art = null; }
+    
+    document.getElementById("player-container").innerHTML = ""; 
+    document.getElementById("main-content").style.display = "none";
+    document.getElementById("security-overlay").innerHTML = `
+        <div style="text-align:center;">
+            <i class="fas fa-lock" style="font-size: 40px; color: #ef4444; margin-bottom: 15px;"></i>
+            <h3 style="color:#ef4444; margin-bottom: 10px;">Access Denied</h3>
+            <p style="color:#a1a1aa;">${message}</p>
+        </div>
+    `;
+    
+    if(viewerRef && !isBooted) { viewerRef.remove(); }
+    
+    setTimeout(() => {
+        localStorage.removeItem("zone_vault_user");
+        window.location.replace("index.html"); 
+    }, 3000);
 }
 
 window.addEventListener("beforeunload", function() {
@@ -491,10 +494,6 @@ window.addEventListener("beforeunload", function() {
 });
 
 function startListeningToEvent(eventId) {
-    // Ginagamit na lang ito para sa TITLE ng stream. Ang aktwal na video
-    // source (Server 1) ay hindi na umaasa sa admin panel / Firebase —
-    // direktang AngelThump ang pinagkukunan, awtomatiko simula't sabay
-    // sa pag-start mo ng OBS.
     dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
         const ev = snapshot.val();
         if(!ev) { 
@@ -504,8 +503,6 @@ function startListeningToEvent(eventId) {
         document.getElementById("main-title").innerText = ev.stream_title || ev.title;
     });
 
-    // Awtomatikong simulan ang AngelThump auto-detect, hindi na naghihintay
-    // ng anumang manual na URL mula sa admin panel.
     if (!angelthumpAutoModeActive) {
         startAngelThumpAutoDetect();
     }
@@ -594,9 +591,6 @@ function setupArtplayer(streamUrl) {
                     });
                     hls.on(Hls.Events.ERROR, function (event, data) {
                         if (data.fatal) {
-                            // Kapag naputol ang stream (hinto sa OBS, atbp.) at
-                            // AngelThump auto-detect mode tayo, bumalik sa standby
-                            // at magpatuloy mag-poll para awtomatikong bumalik.
                             handleAngelThumpDrop();
                         }
                     });
