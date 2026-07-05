@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>prdt</title>
+<style>
+  html,body{margin:0;padding:0;background:#0a0c10;}
+  *{-webkit-tap-highlight-color:transparent;}
+  body.at-locked{overflow:hidden;height:100vh;}
+
+  /* ---------------- Full-page passcode gate ---------------- */
+  #at-page-gate{
+    position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;
+    background:#0a0c10;font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:20px;
+  }
+  #at-page-gate.at-gate-hidden{display:none;}
+  .at-gate-form{display:flex;flex-direction:column;gap:12px;align-items:center;width:100%;max-width:280px;}
+  .at-gate-title{color:#c7cdd6;font-size:15px;font-weight:600;letter-spacing:.02em;text-align:center;margin-bottom:4px;}
+  .at-gate-input{
+    width:100%;box-sizing:border-box;padding:11px 14px;border-radius:6px;border:1px solid #2a2f3a;
+    background:#12151b;color:#e6e9ee;font-size:15px;outline:none;text-align:center;letter-spacing:.05em;
+  }
+  .at-gate-input:focus{border-color:#35d48c;}
+  .at-gate-btn{
+    width:100%;padding:11px 14px;border-radius:6px;border:none;background:#35d48c;color:#06210f;
+    font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.03em;
+  }
+  .at-gate-btn:hover{background:#2ec07f;}
+  .at-gate-err{color:#ff5470;font-size:12px;text-align:center;display:none;}
+
+  /* Shown briefly if devtools is detected as open */
+  #at-devtools-block{
+    position:fixed;inset:0;z-index:2147483647;display:none;align-items:center;justify-content:center;
+    background:#0a0c10;color:#7a8494;font-family:system-ui,-apple-system,Segoe UI,sans-serif;
+    font-size:14px;text-align:center;padding:20px;
+  }
+
+  /* ---------------- Player wrap (same as before) ---------------- */
+  .at-wrap-prdt{position:relative;aspect-ratio:16/9;background:#0a0c10;border-radius:10px;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:960px;margin:40px auto;}
+  .at-wrap-prdt .at-badge{position:absolute;top:10px;left:10px;z-index:5;font-size:11px;font-weight:700;letter-spacing:.06em;padding:4px 9px;border-radius:4px;background:rgba(10,13,18,.85);border:1px solid #ff5470;color:#ff5470;transition:.2s;}
+  .at-wrap-prdt .at-badge.live{border-color:#35d48c;color:#35d48c;}
+  .at-wrap-prdt .at-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#7a8494;font-size:13px;text-align:center;padding:20px;background:#0a0c10;z-index:1;}
+  .at-wrap-prdt .at-art{background:#000;width:100%;height:100%;display:none;}
+  .at-wrap-prdt.at-force-landscape{
+    position:fixed !important;top:50% !important;left:50% !important;
+    width:100vh !important;height:100vw !important;
+    transform:translate(-50%,-50%) rotate(90deg) !important;
+    z-index:2147483647 !important;border-radius:0 !important;
+  }
+  .at-title{
+    max-width:960px;margin:14px auto 0;padding:0 6px;
+    color:#e6e9ee;font-size:16px;font-weight:700;letter-spacing:.01em;
+    text-align:center;line-height:1.4;
+  }
+</style>
+</head>
+<body class="at-locked">
+
+  <!-- Full-page passcode gate: blocks the ENTIRE page, not just the player -->
+  <div id="at-page-gate">
+    <form id="at-gate-form" class="at-gate-form" autocomplete="off">
+      <div class="at-gate-title">Enter passcode to continue</div>
+      <input id="at-gate-input" class="at-gate-input" type="password" inputmode="text"
+             placeholder="Passcode" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button type="submit" class="at-gate-btn">Unlock</button>
+      <div id="at-gate-err" class="at-gate-err">Incorrect passcode. Try again.</div>
+    </form>
+  </div>
+
+  <!-- Shown if devtools open is detected, hiding the content behind it -->
+  <div id="at-devtools-block">Please close developer tools to view this page.</div>
+
+  <!-- ===== Page content (only meaningful after unlock) ===== -->
+  <div id="at-page-content" style="visibility:hidden;">
+    <div id="at-wrap-prdt" class="at-wrap-prdt">
+      <span id="at-badge-prdt" class="at-badge">OFFLINE</span>
+      <span id="at-msg-prdt" class="at-msg">prdt is offline.</span>
+      <div id="at-art-prdt" class="at-art"></div>
+    </div>
+    <div id="at-title-prdt" class="at-title">DAY6 10th Anniversary Tour 〈The DECADE〉 FINALE in SEOUL</div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* =====================================================================
+     PASSCODE GATE (whole page)
+     ===================================================================== */
+  var PASSCODE_B64 = "ZmluYWxlaW5zZW91bA=="; // base64("finaleinseoul")
+  var pageGate = document.getElementById("at-page-gate");
+  var gateForm = document.getElementById("at-gate-form");
+  var gateInput = document.getElementById("at-gate-input");
+  var gateErr = document.getElementById("at-gate-err");
+  var pageContent = document.getElementById("at-page-content");
+  var unlocked = false;
+
+  function checkPasscode(entered){
+    var expected;
+    try{ expected = atob(PASSCODE_B64); }catch(e){ expected = ""; }
+    return entered === expected;
+  }
+
+  gateForm.addEventListener("submit", function(e){
+    e.preventDefault();
+    var val = gateInput.value || "";
+    if(checkPasscode(val)){
+      unlocked = true;
+      gateErr.style.display = "none";
+      pageGate.classList.add("at-gate-hidden");
+      pageContent.style.visibility = "visible";
+      document.body.classList.remove("at-locked");
+      initPlayerModule(); // only starts polling/loading the stream after unlock
+    } else {
+      gateErr.style.display = "block";
+      gateInput.value = "";
+      gateInput.focus();
+    }
+  });
+
+  /* =====================================================================
+     ANTI-INSPECT DETERRENTS
+     These raise friction for casual users only. They cannot stop someone
+     who disables JS, uses "view-source:", or opens devtools via a browser
+     that ignores these key/context-menu blocks. Treat this as a deterrent,
+     not real protection for anything sensitive.
+     ===================================================================== */
+
+  // Block right-click context menu
+  document.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+
+  // Block common devtools / view-source / save-page shortcuts
+  document.addEventListener("keydown", function(e){
+    var k = e.key;
+    var blockCombo =
+      k === "F12" ||
+      (e.ctrlKey && e.shiftKey && (k === "I" || k === "i" || k === "J" || k === "j" || k === "C" || k === "c")) ||
+      (e.ctrlKey && (k === "U" || k === "u" || k === "S" || k === "s")) ||
+      (e.metaKey && e.altKey && (k === "I" || k === "i" || k === "J" || k === "j")); // Mac Cmd+Opt+I/J
+    if(blockCombo){
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  // Basic devtools-open heuristic: compares outer vs inner window size,
+  // which changes when a docked devtools panel is open. Not reliable for
+  // undocked/mobile devtools, but catches the common case.
+  var devtoolsOpen = false;
+  var sizeThreshold = 160;
+  function checkDevtoolsBySize(){
+    var widthGap = window.outerWidth - window.innerWidth;
+    var heightGap = window.outerHeight - window.innerHeight;
+    return widthGap > sizeThreshold || heightGap > sizeThreshold;
+  }
+  var devtoolsBlock = document.getElementById("at-devtools-block");
+  function updateDevtoolsBlock(open){
+    devtoolsOpen = open;
+    devtoolsBlock.style.display = open ? "flex" : "none";
+  }
+  setInterval(function(){
+    if(!unlocked) return; // only bother checking once past the gate
+    updateDevtoolsBlock(checkDevtoolsBySize());
+  }, 700);
+
+  /* =====================================================================
+     STREAM / PLAYER MODULE (unchanged logic, now started only on unlock)
+     ===================================================================== */
+  function initPlayerModule(){
+    var CHANNEL = "prdt";
+    var wrap = document.getElementById("at-wrap-prdt");
+    var artEl = document.getElementById("at-art-prdt");
+    var badge = document.getElementById("at-badge-prdt");
+    var msg = document.getElementById("at-msg-prdt");
+    var art = null, sessionKey = null, retryCount = 0, isLive = false;
+    var pollMs = 10000, countdown = 0, countdownTimer = null;
+
+    function regionHost(server){
+      var map = { nyc:"nyc3", sfo:"sfo3", ams:"ams3", tor:"tor1", blr:"blr1", syd:"syd1", fra:"fra1", lon:"lon1", sgp:"sgp1" };
+      var prefix = (server || "").split("-")[0];
+      return map[prefix] || (prefix + "1");
+    }
+
+    function deriveManifest(data){
+      var user = data.user, ingest = data.ingest;
+      if(!user || !ingest || data.type !== "live") return null;
+      var segment = btoa(data.createdAt + user.username) + "_" + user.username;
+      var host = regionHost(ingest.server);
+      return { url: "https://" + host + ".angelthump.com/hls/" + segment + "/index.m3u8", sessionKey: data.createdAt };
+    }
+
+    function fetchStream(){
+      var endpoint = "https://api.angelthump.com/v2/streams/" + CHANNEL;
+      return fetch(endpoint, { cache: "no-store" })
+        .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+        .catch(function(){
+          return fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(endpoint), { cache: "no-store" })
+            .then(function(r){ if(!r.ok) throw 0; return r.json(); });
+        });
+    }
+
+    function startCountdown(){
+      clearInterval(countdownTimer);
+      countdown = Math.round(pollMs / 1000);
+      updateOfflineMsg();
+      countdownTimer = setInterval(function(){
+        countdown--;
+        if(countdown <= 0) countdown = Math.round(pollMs / 1000);
+        updateOfflineMsg();
+      }, 1000);
+    }
+    function updateOfflineMsg(){
+      if(!isLive) msg.textContent = CHANNEL + " is offline — checking again in " + countdown + "s";
+    }
+
+    // Trim the control bar down to ONLY volume + fullscreen. Built-in control
+    // DOM class names aren't officially documented, so instead of guessing exact
+    // selectors (which can silently hide everything if the guess is wrong), this
+    // inspects each control's className/data-name/title/aria-label for the words
+    // "volume" or "fullscreen". If it can't positively identify BOTH on a given
+    // pass, it leaves the default control bar untouched rather than risk hiding
+    // everything — a full control bar is a safer failure mode than a blank one.
+    function trimControlsToVolumeAndFullscreen(){
+      try{
+        var root = art && art.template && art.template.$controls;
+        if(!root) return;
+        var kids = Array.prototype.slice.call(root.children);
+        function looksLike(el, word){
+          var re = new RegExp(word, "i");
+          var cls = el.className || "";
+          var dataName = (el.getAttribute && el.getAttribute("data-name")) || "";
+          var title = (el.getAttribute && (el.getAttribute("title") || el.getAttribute("aria-label"))) || "";
+          return re.test(cls) || re.test(dataName) || re.test(title);
+        }
+        var volumeEls = kids.filter(function(k){ return looksLike(k, "volume"); });
+        var fsEls = kids.filter(function(k){ return looksLike(k, "fullscreen"); });
+        if(!volumeEls.length || !fsEls.length) return;
+        var keep = volumeEls.concat(fsEls);
+        kids.forEach(function(k){
+          k.style.display = keep.indexOf(k) === -1 ? "none" : "";
+        });
+      }catch(e){}
+    }
+
+    function ensurePlayer(){
+      if(art) return art;
+      art = new Artplayer({
+        container: artEl,
+        url: "",
+        volume: 0.5,
+        muted: true,
+        autoplay: true,
+        isLive: true,
+        playsInline: true,
+        autoSize: false,
+        autoMini: false,
+        setting: false,
+        loop: false,
+        flip: false,
+        playbackRate: false,
+        aspectRatio: false,
+        screenshot: false,
+        hotkey: false,
+        pip: false,
+        airplay: false,
+        mutex: true,
+        fullscreen: true,
+        fullscreenWeb: true,
+        miniProgressBar: false,
+        theme: "#35d48c",
+        customType: {
+          m3u8: function(video, url){
+            if(video.hls){ video.hls.destroy(); }
+            var hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            video.hls = hls;
+            hls.on(Hls.Events.ERROR, function(evt, data){
+              if(!data.fatal) return;
+              retryCount++;
+              if(retryCount > 6){ setLive(false); return; }
+              if(data.type === Hls.ErrorTypes.NETWORK_ERROR){ hls.startLoad(); }
+              else if(data.type === Hls.ErrorTypes.MEDIA_ERROR){ hls.recoverMediaError(); }
+            });
+          }
+        }
+      });
+      art.on("ready", function(){ trimControlsToVolumeAndFullscreen(); });
+      art.on("resize", function(){ trimControlsToVolumeAndFullscreen(); });
+      art.on("fullscreen", function(state){ handleFullscreenChange(state); trimControlsToVolumeAndFullscreen(); });
+      art.on("fullscreenWeb", function(state){ handleFullscreenChange(state); trimControlsToVolumeAndFullscreen(); });
+      return art;
+    }
+
+    // ---------- mobile auto-landscape on fullscreen ----------
+    function isMobile(){
+      return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || (window.innerWidth <= 900 && "ontouchstart" in window);
+    }
+    function isPortrait(){
+      return window.matchMedia && window.matchMedia("(orientation: portrait)").matches;
+    }
+    function handleFullscreenChange(state){
+      if(state && isMobile()){
+        if(screen.orientation && screen.orientation.lock){
+          screen.orientation.lock("landscape").catch(function(){ applyCssRotateFallback(true); });
+        } else {
+          applyCssRotateFallback(true);
+        }
+      } else {
+        if(screen.orientation && screen.orientation.unlock){
+          try{ screen.orientation.unlock(); }catch(e){}
+        }
+        applyCssRotateFallback(false);
+      }
+    }
+    function applyCssRotateFallback(on){
+      if(on && isPortrait()){
+        wrap.classList.add("at-force-landscape");
+      } else {
+        wrap.classList.remove("at-force-landscape");
+      }
+    }
+    window.addEventListener("orientationchange", function(){
+      if(wrap.classList.contains("at-force-landscape") && !isPortrait()){
+        wrap.classList.remove("at-force-landscape");
+      }
+    });
+
+    function setLive(live){
+      isLive = live;
+      badge.textContent = live ? "LIVE" : "OFFLINE";
+      badge.className = "at-badge" + (live ? " live" : "");
+      artEl.style.display = live ? "block" : "none";
+      msg.style.display = live ? "none" : "flex";
+      if(live){
+        clearInterval(countdownTimer);
+      } else {
+        startCountdown();
+      }
+    }
+
+    function attach(url){
+      var player = ensurePlayer();
+      retryCount = 0;
+      player.switchUrl(url).catch(function(){});
+    }
+
+    function poll(){
+      fetchStream().then(function(data){
+        var manifest = deriveManifest(data);
+        if(manifest){
+          setLive(true);
+          if(manifest.sessionKey !== sessionKey){
+            sessionKey = manifest.sessionKey;
+            attach(manifest.url);
+          }
+        } else {
+          sessionKey = null;
+          setLive(false);
+        }
+      }).catch(function(){});
+    }
+
+    setLive(false);
+    poll();
+    setInterval(poll, pollMs);
+  }
+})();
+</script>
+</body>
+</html>
