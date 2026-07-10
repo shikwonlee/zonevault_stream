@@ -299,7 +299,7 @@ if (!storedUser) {
             document.getElementById("security-overlay").style.display = "none";
             loadUserProfile(); // Fetch the custom display name
             loadLiveEvents();
-            openKstNotice(); // Show KST reminder first, then guidance modal follows on close
+            maybeShowNotices(); // Show KST reminder + guidance modal, but only once every 24 hours
         } else {
             alert("This account is not approved. Redirecting...");
             window.location.href = "index.html"; 
@@ -364,6 +364,16 @@ function saveProfileName() {
 }
 
 // --- NOTICE MODALS LOGIC ---
+// Notices show once per browser session: staying visible after a refresh (same tab),
+// but reappearing if the user closes the tab/browser and opens the page again.
+const NOTICE_SESSION_KEY = "zone_vault_notices_seen";
+
+function maybeShowNotices() {
+    if (!sessionStorage.getItem(NOTICE_SESSION_KEY)) {
+        openKstNotice();
+    }
+}
+
 function openKstNotice() {
     document.getElementById('kstNoticeModal').classList.add('active');
 }
@@ -377,6 +387,8 @@ function openGuidanceModal() {
 }
 function closeGuidanceModal() {
     document.getElementById('guidanceModal').classList.remove('active');
+    // Mark both notices as seen for this browser session (resets when tab/browser is closed)
+    sessionStorage.setItem(NOTICE_SESSION_KEY, "1");
 }
 
 // --- LIVE EVENTS LOGIC ---
