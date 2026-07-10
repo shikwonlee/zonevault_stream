@@ -41,7 +41,6 @@
         font-family: 'Outfit', sans-serif;
         min-height: 100vh;
         display: flex; flex-direction: column;
-        overflow-x: hidden;
         
         user-select: none;
         -webkit-user-select: none;
@@ -66,23 +65,11 @@
     }
     .back-btn:hover { color: var(--text-main); }
 
-    .ambient-backdrop {
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        opacity: 0;
-        transition: opacity 1s ease;
-        pointer-events: none;
-    }
-    .ambient-backdrop.ambient-active { opacity: 1; }
-
     #player-container { 
         width: 100%; aspect-ratio: 16/9; background: #000; 
         border-radius: 16px; overflow: hidden; 
-        border: 1px solid var(--border-color); 
+        border: 1px solid var(--border-color); box-shadow: var(--shadow-float); 
         position: relative;
-        z-index: 1;
-        box-shadow: var(--shadow-float);
     }
     .artplayer-app { width: 100%; height: 100%; }
 
@@ -585,93 +572,6 @@ function renderActivePlayer() {
     }
 }
 
-/* =========================================
-   AMBIENT LIGHT EFFECT (fills the black letterbox/pillarbox bars
-   inside the player itself — especially on mobile fullscreen where
-   the screen ratio doesn't match the 16:9 stream).
-   YouTube-style: no blurred video texture running every frame —
-   just the AVERAGE COLOR from the left/right edges applied as a
-   soft radial-gradient glow. No filter:blur() on a big layer, no
-   continuous canvas drawing, only a tiny 16x9 offscreen sample
-   read once every 2 seconds.
-   Only active during fullscreen — that's the only time bars
-   normally appear, so zero cost during regular viewing.
-   ========================================= */
-const AMBIENT_SAMPLE_MS = 2000;
-let ambientGlowEl = null;
-let ambientTimer = null;
-let ambientCanvas = null;
-let ambientCtx = null;
-let ambientUnsupported = false; // set true if the stream's CORS policy blocks pixel reads
-
-function averageColor(pixels) {
-    let r = 0, g = 0, b = 0, count = 0;
-    for (let i = 0; i < pixels.length; i += 4) {
-        r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++;
-    }
-    if (!count) return null;
-    return { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
-}
-
-function mountAmbientGlow() {
-    if (!art || !art.template || !art.template.$player) return null;
-    if (ambientGlowEl && art.template.$player.contains(ambientGlowEl)) return ambientGlowEl;
-
-    ambientGlowEl = document.createElement('div');
-    ambientGlowEl.className = 'ambient-backdrop';
-    art.template.$player.insertBefore(ambientGlowEl, art.template.$player.firstChild);
-    return ambientGlowEl;
-}
-
-function sampleAmbientColor() {
-    if (ambientUnsupported || document.hidden) return;
-    if (!art || !art.video || art.video.readyState < 2 || art.video.paused) return;
-    if (!ambientGlowEl) return;
-
-    if (!ambientCanvas) {
-        ambientCanvas = document.createElement('canvas');
-        ambientCanvas.width = 16;
-        ambientCanvas.height = 9;
-        ambientCtx = ambientCanvas.getContext('2d', { willReadFrequently: true });
-    }
-
-    try {
-        ambientCtx.drawImage(art.video, 0, 0, 16, 9);
-        const left = averageColor(ambientCtx.getImageData(0, 0, 3, 9).data);
-        const right = averageColor(ambientCtx.getImageData(13, 0, 3, 9).data);
-        if (!left || !right) return;
-
-        ambientGlowEl.style.background =
-            `radial-gradient(ellipse 60% 90% at 0% 50%, rgba(${left.r},${left.g},${left.b},0.55) 0%, transparent 65%),` +
-            `radial-gradient(ellipse 60% 90% at 100% 50%, rgba(${right.r},${right.g},${right.b},0.55) 0%, transparent 65%)`;
-        ambientGlowEl.classList.add('ambient-active');
-    } catch (e) {
-        // Stream is cross-origin without CORS headers — canvas is "tainted" and pixels
-        // can't be read. Disable quietly; the player itself keeps working normally.
-        ambientUnsupported = true;
-        stopAmbientLight();
-        console.warn('Ambient light disabled — this stream does not expose CORS headers for pixel reads.', e);
-    }
-}
-
-function startAmbientLight() {
-    stopAmbientLight();
-    if (ambientUnsupported) return;
-    const glow = mountAmbientGlow();
-    if (!glow) return;
-    sampleAmbientColor();
-    ambientTimer = setInterval(sampleAmbientColor, AMBIENT_SAMPLE_MS);
-}
-
-function stopAmbientLight() {
-    if (ambientTimer) { clearInterval(ambientTimer); ambientTimer = null; }
-    if (ambientGlowEl) {
-        ambientGlowEl.classList.remove('ambient-active');
-        if (ambientGlowEl.parentNode) ambientGlowEl.parentNode.removeChild(ambientGlowEl);
-        ambientGlowEl = null;
-    }
-}
-
 function setupArtplayer(streamUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
@@ -726,10 +626,6 @@ function setupArtplayer(streamUrl) {
         ],
     });
 
-    art.on('destroy', () => {
-        stopAmbientLight();
-    });
-
     art.on('video:pause', () => {
         if (art.video.currentTime > 0) {
             setTimeout(() => {
@@ -741,14 +637,12 @@ function setupArtplayer(streamUrl) {
 
     art.on('fullscreen', (state) => {
         if (state) {
-            startAmbientLight();
             if (screen.orientation && screen.orientation.lock) {
                 screen.orientation.lock('landscape').catch((e) => {
                     console.log('Orientation lock failed:', e);
                 });
             }
         } else {
-            stopAmbientLight();
             if (screen.orientation && screen.orientation.unlock) {
                 screen.orientation.unlock();
             }
