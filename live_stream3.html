@@ -592,60 +592,56 @@ function renderActivePlayer() {
    AMBIENT LIGHT EFFECT (fills the black letterbox/pillarbox bars
    inside the player itself — especially on mobile fullscreen where
    the screen ratio doesn't match the 16:9 stream).
+   Lightweight: periodically snapshots the MAIN video onto a small
+   canvas (no second stream/decode needed — drawImage works fine on
+   cross-origin video, we just never read pixel data back from it).
    Must live INSIDE ArtPlayer's fullscreen root element, otherwise
    it disappears the moment native Fullscreen API kicks in.
    ========================================= */
-let ambientHls = null;
-let ambientVideoEl = null;
+let ambientCanvasEl = null;
+let ambientCtx = null;
+let ambientTimer = null;
 
-function mountAmbientVideo() {
+function mountAmbientCanvas() {
     if (!art || !art.template || !art.template.$player) return null;
-    if (ambientVideoEl && art.template.$player.contains(ambientVideoEl)) return ambientVideoEl;
+    if (ambientCanvasEl && art.template.$player.contains(ambientCanvasEl)) return ambientCanvasEl;
 
-    ambientVideoEl = document.createElement('video');
-    ambientVideoEl.className = 'ambient-backdrop';
-    ambientVideoEl.muted = true;
-    ambientVideoEl.playsInline = true;
-    ambientVideoEl.setAttribute('playsinline', '');
+    ambientCanvasEl = document.createElement('canvas');
+    ambientCanvasEl.className = 'ambient-backdrop';
+    ambientCanvasEl.width = 96;
+    ambientCanvasEl.height = 54; // tiny — it's blurred heavily anyway, no need for detail
+    ambientCtx = ambientCanvasEl.getContext('2d');
     // Insert as the first child so it paints behind the real video, controls, and watermark layer
-    art.template.$player.insertBefore(ambientVideoEl, art.template.$player.firstChild);
-    return ambientVideoEl;
+    art.template.$player.insertBefore(ambientCanvasEl, art.template.$player.firstChild);
+    return ambientCanvasEl;
 }
 
-function startAmbientLight(streamUrl) {
-    stopAmbientLight();
-    const ambientVideo = mountAmbientVideo();
-    if (!ambientVideo || !streamUrl) return;
-
-    if (Hls.isSupported()) {
-        ambientHls = new Hls();
-        ambientHls.loadSource(streamUrl);
-        ambientHls.attachMedia(ambientVideo);
-        ambientHls.on(Hls.Events.MANIFEST_PARSED, () => {
-            ambientVideo.play().catch(() => {});
-            ambientVideo.classList.add('ambient-active');
-        });
-        // Ambient layer is purely cosmetic — ignore its errors, never let it disrupt the main player
-        ambientHls.on(Hls.Events.ERROR, () => {});
-    } else if (ambientVideo.canPlayType('application/vnd.apple.mpegurl')) {
-        ambientVideo.src = streamUrl;
-        ambientVideo.addEventListener('loadedmetadata', () => {
-            ambientVideo.play().catch(() => {});
-            ambientVideo.classList.add('ambient-active');
-        }, { once: true });
+function drawAmbientFrame() {
+    if (!art || !art.video || art.video.readyState < 2 || !ambientCtx) return;
+    try {
+        ambientCtx.drawImage(art.video, 0, 0, ambientCanvasEl.width, ambientCanvasEl.height);
+        ambientCanvasEl.classList.add('ambient-active');
+    } catch (e) {
+        // Extremely unlikely to throw since we never read pixels back, but stay safe
     }
+}
+
+function startAmbientLight() {
+    stopAmbientLight();
+    const canvas = mountAmbientCanvas();
+    if (!canvas) return;
+    drawAmbientFrame();
+    ambientTimer = setInterval(drawAmbientFrame, 800);
 }
 
 function stopAmbientLight() {
-    if (ambientVideoEl) {
-        ambientVideoEl.classList.remove('ambient-active');
-        ambientVideoEl.pause();
-        ambientVideoEl.removeAttribute('src');
-        ambientVideoEl.load();
-        if (ambientVideoEl.parentNode) ambientVideoEl.parentNode.removeChild(ambientVideoEl);
-        ambientVideoEl = null;
+    if (ambientTimer) { clearInterval(ambientTimer); ambientTimer = null; }
+    if (ambientCanvasEl) {
+        ambientCanvasEl.classList.remove('ambient-active');
+        if (ambientCanvasEl.parentNode) ambientCanvasEl.parentNode.removeChild(ambientCanvasEl);
+        ambientCanvasEl = null;
+        ambientCtx = null;
     }
-    if (ambientHls) { ambientHls.destroy(); ambientHls = null; }
 }
 
 function setupArtplayer(streamUrl) {
@@ -703,7 +699,7 @@ function setupArtplayer(streamUrl) {
     });
 
     art.on('video:play', () => {
-        startAmbientLight(streamUrl);
+        startAmbientLight();
     });
 
     art.on('destroy', () => {
