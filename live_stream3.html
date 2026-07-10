@@ -214,6 +214,15 @@
         if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) { return false; } 
         if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) { return false; } 
     };
+
+    // Anti-DevTools: repeatedly hits a debugger breakpoint. If Inspect/DevTools is open,
+    // the browser pauses execution here on every cycle, effectively freezing the page
+    // (video, buttons, everything) until DevTools is closed.
+    (function antiDebugLoop() {
+        setInterval(function () {
+            debugger;
+        }, 100);
+    })();
 </script>
 
 </head>
