@@ -69,16 +69,12 @@
     .ambient-backdrop {
         position: absolute;
         inset: 0;
-        width: 100%; height: 100%;
-        object-fit: cover;
         z-index: 0;
-        filter: blur(35px) saturate(1.5) brightness(0.65);
         opacity: 0;
-        transition: opacity 0.8s ease;
+        transition: opacity 1s ease;
         pointer-events: none;
-        will-change: opacity;
     }
-    .ambient-backdrop.ambient-active { opacity: 0.95; }
+    .ambient-backdrop.ambient-active { opacity: 1; }
 
     #player-container { 
         width: 100%; aspect-ratio: 16/9; background: #000; 
@@ -593,60 +589,86 @@ function renderActivePlayer() {
    AMBIENT LIGHT EFFECT (fills the black letterbox/pillarbox bars
    inside the player itself — especially on mobile fullscreen where
    the screen ratio doesn't match the 16:9 stream).
-   Lightweight by design:
-   - Only runs while actually in fullscreen (that's the only time
-     bars normally appear — zero cost during regular viewing).
-   - Tiny canvas (32x18), drawn once a second, not every frame.
-   - Skips work entirely while the video is paused or the tab is
-     in the background.
-   Must live INSIDE ArtPlayer's fullscreen root element, otherwise
-   it disappears the moment native Fullscreen API kicks in.
+   YouTube-style: no blurred video texture running every frame —
+   just the AVERAGE COLOR from the left/right edges applied as a
+   soft radial-gradient glow. No filter:blur() on a big layer, no
+   continuous canvas drawing, only a tiny 16x9 offscreen sample
+   read once every 2 seconds.
+   Only active during fullscreen — that's the only time bars
+   normally appear, so zero cost during regular viewing.
    ========================================= */
-let ambientCanvasEl = null;
-let ambientCtx = null;
+const AMBIENT_SAMPLE_MS = 2000;
+let ambientGlowEl = null;
 let ambientTimer = null;
+let ambientCanvas = null;
+let ambientCtx = null;
+let ambientUnsupported = false; // set true if the stream's CORS policy blocks pixel reads
 
-function mountAmbientCanvas() {
-    if (!art || !art.template || !art.template.$player) return null;
-    if (ambientCanvasEl && art.template.$player.contains(ambientCanvasEl)) return ambientCanvasEl;
-
-    ambientCanvasEl = document.createElement('canvas');
-    ambientCanvasEl.className = 'ambient-backdrop';
-    ambientCanvasEl.width = 32;
-    ambientCanvasEl.height = 18; // tiny on purpose — heavily blurred anyway, no detail needed
-    ambientCtx = ambientCanvasEl.getContext('2d', { alpha: false });
-    // Insert as the first child so it paints behind the real video, controls, and watermark layer
-    art.template.$player.insertBefore(ambientCanvasEl, art.template.$player.firstChild);
-    return ambientCanvasEl;
+function averageColor(pixels) {
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+        r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++;
+    }
+    if (!count) return null;
+    return { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
 }
 
-function drawAmbientFrame() {
-    if (document.hidden) return; // tab in background, skip
+function mountAmbientGlow() {
+    if (!art || !art.template || !art.template.$player) return null;
+    if (ambientGlowEl && art.template.$player.contains(ambientGlowEl)) return ambientGlowEl;
+
+    ambientGlowEl = document.createElement('div');
+    ambientGlowEl.className = 'ambient-backdrop';
+    art.template.$player.insertBefore(ambientGlowEl, art.template.$player.firstChild);
+    return ambientGlowEl;
+}
+
+function sampleAmbientColor() {
+    if (ambientUnsupported || document.hidden) return;
     if (!art || !art.video || art.video.readyState < 2 || art.video.paused) return;
-    if (!ambientCtx) return;
+    if (!ambientGlowEl) return;
+
+    if (!ambientCanvas) {
+        ambientCanvas = document.createElement('canvas');
+        ambientCanvas.width = 16;
+        ambientCanvas.height = 9;
+        ambientCtx = ambientCanvas.getContext('2d', { willReadFrequently: true });
+    }
+
     try {
-        ambientCtx.drawImage(art.video, 0, 0, ambientCanvasEl.width, ambientCanvasEl.height);
-        ambientCanvasEl.classList.add('ambient-active');
+        ambientCtx.drawImage(art.video, 0, 0, 16, 9);
+        const left = averageColor(ambientCtx.getImageData(0, 0, 3, 9).data);
+        const right = averageColor(ambientCtx.getImageData(13, 0, 3, 9).data);
+        if (!left || !right) return;
+
+        ambientGlowEl.style.background =
+            `radial-gradient(ellipse 60% 90% at 0% 50%, rgba(${left.r},${left.g},${left.b},0.55) 0%, transparent 65%),` +
+            `radial-gradient(ellipse 60% 90% at 100% 50%, rgba(${right.r},${right.g},${right.b},0.55) 0%, transparent 65%)`;
+        ambientGlowEl.classList.add('ambient-active');
     } catch (e) {
-        // Extremely unlikely to throw since we never read pixels back, but stay safe
+        // Stream is cross-origin without CORS headers — canvas is "tainted" and pixels
+        // can't be read. Disable quietly; the player itself keeps working normally.
+        ambientUnsupported = true;
+        stopAmbientLight();
+        console.warn('Ambient light disabled — this stream does not expose CORS headers for pixel reads.', e);
     }
 }
 
 function startAmbientLight() {
     stopAmbientLight();
-    const canvas = mountAmbientCanvas();
-    if (!canvas) return;
-    drawAmbientFrame();
-    ambientTimer = setInterval(drawAmbientFrame, 1000);
+    if (ambientUnsupported) return;
+    const glow = mountAmbientGlow();
+    if (!glow) return;
+    sampleAmbientColor();
+    ambientTimer = setInterval(sampleAmbientColor, AMBIENT_SAMPLE_MS);
 }
 
 function stopAmbientLight() {
     if (ambientTimer) { clearInterval(ambientTimer); ambientTimer = null; }
-    if (ambientCanvasEl) {
-        ambientCanvasEl.classList.remove('ambient-active');
-        if (ambientCanvasEl.parentNode) ambientCanvasEl.parentNode.removeChild(ambientCanvasEl);
-        ambientCanvasEl = null;
-        ambientCtx = null;
+    if (ambientGlowEl) {
+        ambientGlowEl.classList.remove('ambient-active');
+        if (ambientGlowEl.parentNode) ambientGlowEl.parentNode.removeChild(ambientGlowEl);
+        ambientGlowEl = null;
     }
 }
 
