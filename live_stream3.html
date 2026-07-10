@@ -218,10 +218,20 @@
     // Anti-DevTools: repeatedly hits a debugger breakpoint. If Inspect/DevTools is open,
     // the browser pauses execution here on every cycle, effectively freezing the page
     // (video, buttons, everything) until DevTools is closed.
+    //
+    // NOTE: we generate the debugger statement via `new Function(...)` on every cycle
+    // instead of writing one static `debugger;` line. A static line has a fixed source
+    // that Chrome's "Add script to ignore list" can permanently blacklist (which is what
+    // disabled the simpler version). Building it dynamically means each cycle runs as a
+    // brand-new, uniquely-identified script, so blacklisting one instance doesn't stop
+    // the next one from tripping.
     (function antiDebugLoop() {
-        setInterval(function () {
-            debugger;
-        }, 100);
+        function runTrap() {
+            try {
+                (new Function('debugger;'))();
+            } catch (e) {}
+        }
+        setInterval(runTrap, 100);
     })();
 </script>
 
