@@ -72,10 +72,11 @@
         width: 100%; height: 100%;
         object-fit: cover;
         z-index: 0;
-        filter: blur(45px) saturate(1.5) brightness(0.65);
+        filter: blur(35px) saturate(1.5) brightness(0.65);
         opacity: 0;
         transition: opacity 0.8s ease;
         pointer-events: none;
+        will-change: opacity;
     }
     .ambient-backdrop.ambient-active { opacity: 0.95; }
 
@@ -592,9 +593,12 @@ function renderActivePlayer() {
    AMBIENT LIGHT EFFECT (fills the black letterbox/pillarbox bars
    inside the player itself — especially on mobile fullscreen where
    the screen ratio doesn't match the 16:9 stream).
-   Lightweight: periodically snapshots the MAIN video onto a small
-   canvas (no second stream/decode needed — drawImage works fine on
-   cross-origin video, we just never read pixel data back from it).
+   Lightweight by design:
+   - Only runs while actually in fullscreen (that's the only time
+     bars normally appear — zero cost during regular viewing).
+   - Tiny canvas (32x18), drawn once a second, not every frame.
+   - Skips work entirely while the video is paused or the tab is
+     in the background.
    Must live INSIDE ArtPlayer's fullscreen root element, otherwise
    it disappears the moment native Fullscreen API kicks in.
    ========================================= */
@@ -608,16 +612,18 @@ function mountAmbientCanvas() {
 
     ambientCanvasEl = document.createElement('canvas');
     ambientCanvasEl.className = 'ambient-backdrop';
-    ambientCanvasEl.width = 96;
-    ambientCanvasEl.height = 54; // tiny — it's blurred heavily anyway, no need for detail
-    ambientCtx = ambientCanvasEl.getContext('2d');
+    ambientCanvasEl.width = 32;
+    ambientCanvasEl.height = 18; // tiny on purpose — heavily blurred anyway, no detail needed
+    ambientCtx = ambientCanvasEl.getContext('2d', { alpha: false });
     // Insert as the first child so it paints behind the real video, controls, and watermark layer
     art.template.$player.insertBefore(ambientCanvasEl, art.template.$player.firstChild);
     return ambientCanvasEl;
 }
 
 function drawAmbientFrame() {
-    if (!art || !art.video || art.video.readyState < 2 || !ambientCtx) return;
+    if (document.hidden) return; // tab in background, skip
+    if (!art || !art.video || art.video.readyState < 2 || art.video.paused) return;
+    if (!ambientCtx) return;
     try {
         ambientCtx.drawImage(art.video, 0, 0, ambientCanvasEl.width, ambientCanvasEl.height);
         ambientCanvasEl.classList.add('ambient-active');
@@ -631,7 +637,7 @@ function startAmbientLight() {
     const canvas = mountAmbientCanvas();
     if (!canvas) return;
     drawAmbientFrame();
-    ambientTimer = setInterval(drawAmbientFrame, 800);
+    ambientTimer = setInterval(drawAmbientFrame, 1000);
 }
 
 function stopAmbientLight() {
@@ -698,10 +704,6 @@ function setupArtplayer(streamUrl) {
         ],
     });
 
-    art.on('video:play', () => {
-        startAmbientLight();
-    });
-
     art.on('destroy', () => {
         stopAmbientLight();
     });
@@ -717,12 +719,14 @@ function setupArtplayer(streamUrl) {
 
     art.on('fullscreen', (state) => {
         if (state) {
+            startAmbientLight();
             if (screen.orientation && screen.orientation.lock) {
                 screen.orientation.lock('landscape').catch((e) => {
                     console.log('Orientation lock failed:', e);
                 });
             }
         } else {
+            stopAmbientLight();
             if (screen.orientation && screen.orientation.unlock) {
                 screen.orientation.unlock();
             }
