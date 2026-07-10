@@ -96,19 +96,22 @@
     @keyframes pulse { 0% { opacity: 0.5; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.5; transform: scale(0.8); } }
     
     .card-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; line-height: 1.4; color: var(--text-main);}
-    .card-bottom { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: auto; }
-    .card-date { font-size: 12px; color: var(--text-muted); }
-    .card-date strong { color: var(--text-main); font-size: 13px; display: block; margin-top: 4px; }
+    .card-bottom { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: auto; gap: 12px; }
+    .card-date { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .card-date strong { color: var(--text-main); font-size: 13px; display: block; margin-top: 2px; }
+    .card-date .day-line { margin-top: 6px; }
+    .card-date .day-line:first-child { margin-top: 0; }
     
     .enter-btn { 
         background: var(--text-main); color: var(--bg-color); border: none; 
         padding: 10px 18px; border-radius: 8px; font-weight: 700; 
         cursor: pointer; transition: 0.2s; font-size: 13px; font-family: inherit;
+        white-space: nowrap;
     }
     .enter-btn:hover { transform: translateY(-2px); opacity: 0.9; }
 
     /* =========================================
-       4. MODALS (SECURITY & PROFILE)
+       4. MODALS (SECURITY, PROFILE, NOTICES)
        ========================================= */
     #security-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
@@ -121,6 +124,7 @@
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(0,0,0,0.8); z-index: 10000; display: none; 
         align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease;
+        padding: 20px;
     }
     .modal-overlay.active { opacity: 1; display: flex; }
     
@@ -141,6 +145,7 @@
         background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-muted); 
         width: 32px; height: 32px; border-radius: 50%; font-size: 16px; 
         cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
     }
     .close-modal:hover { background: var(--hover-bg); color: var(--text-main); }
 
@@ -160,6 +165,17 @@
         cursor: pointer; transition: 0.2s; font-size: 14px;
     }
     .btn-save:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    /* Notice / Guidance modal specifics */
+    .notice-box { max-width: 440px; }
+    .notice-body-text { font-size: 14px; line-height: 1.7; color: var(--text-muted); margin-bottom: 20px; }
+    .notice-body-text strong.kst-tag { color: var(--text-main); }
+
+    .guidance-box { max-width: 480px; }
+    .guidance-body { max-height: 55vh; overflow-y: auto; }
+    .guidance-item { font-size: 13px; line-height: 1.6; color: var(--text-muted); margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-color); }
+    .guidance-item:last-child { border-bottom: none; margin-bottom: 20px; padding-bottom: 0; }
+    .highlight { color: var(--text-main); font-weight: 700; }
 
     @media (max-width: 768px) {
         .top-nav { padding: 15px 20px; margin-bottom: 20px; }
@@ -183,6 +199,63 @@
             <label class="input-label">Display Name</label>
             <input type="text" id="profileNameInput" class="styled-input" placeholder="Enter display name">
             <button class="btn-save" id="saveProfileBtn" onclick="saveProfileName()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- KST TIME ZONE REMINDER MODAL -->
+<div id="kstNoticeModal" class="modal-overlay">
+    <div class="modal-box notice-box">
+        <div class="modal-header">
+            <div class="modal-title">📢 Reminder!</div>
+            <button class="close-modal" onclick="closeKstNotice()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="notice-body-text">
+                Please note that all of the times shown on the schedule are in <strong class="kst-tag">Korean Standard Time (KST) 🇰🇷</strong>.
+                <br><br>
+                Before the event starts, kindly check and convert the time to your local time zone to make sure you don't miss the stream.
+                <br><br>
+                Thank you.
+            </p>
+            <button class="btn-save" onclick="closeKstNotice()">Got it</button>
+        </div>
+    </div>
+</div>
+
+<!-- STREAM GUIDANCE MODAL -->
+<div id="guidanceModal" class="modal-overlay">
+    <div class="modal-box guidance-box">
+        <div class="modal-header">
+            <div class="modal-title">📋 Stream Guidelines</div>
+            <button class="close-modal" onclick="closeGuidanceModal()">&times;</button>
+        </div>
+        <div class="modal-body guidance-body">
+            <div class="guidance-item">
+                <span class="highlight">One Device Policy:</span> Only 1 device can access the stream. If you try to login again on another device, the first connected device will be automatically logged out.
+            </div>
+            <div class="guidance-item">
+                Only <span class="highlight">allowed/verified users</span> can access or view the live stream. Unverified accounts will be blocked.
+            </div>
+            <div class="guidance-item">
+                The ID displayed on the bottom left is your <span class="highlight">User ID</span>. This is recorded in our database and used to grant your access.
+            </div>
+            <div class="guidance-item">
+                <span class="highlight" style="color:#ff4444;">NO RESTREAMING:</span> Restreaming on any platform is strictly prohibited. If caught, you will immediately lose access to the stream and be permanently blacklisted.
+            </div>
+            <div class="guidance-item">
+                <span class="highlight" style="color:#ff4444;">SCREENSHOT AND SCREEN RECORDING ARE PROHIBITED.</span> Do not capture, record, or redistribute any part of the stream. Posting while the stream is ongoing is strictly not allowed.
+            </div>
+            <div class="guidance-item">
+                <span class="highlight" style="color:#ff4444;">DO NOT SHARE LINKS:</span> Sharing, reposting, or distributing the website or stream link where you are watching is strictly prohibited. Violators may have their access revoked without notice.
+            </div>
+            <div class="guidance-item">
+                If you experience buffering or black screen, please refresh the page.
+            </div>
+            <div class="guidance-item">
+                No sound? Tap the audio icon to unmute. iOS users should check if the physical silent switch is on.
+            </div>
+            <button class="btn-save" onclick="closeGuidanceModal()">I Understand</button>
         </div>
     </div>
 </div>
@@ -226,6 +299,7 @@ if (!storedUser) {
             document.getElementById("security-overlay").style.display = "none";
             loadUserProfile(); // Fetch the custom display name
             loadLiveEvents();
+            openKstNotice(); // Show KST reminder first, then guidance modal follows on close
         } else {
             alert("This account is not approved. Redirecting...");
             window.location.href = "index.html"; 
@@ -289,7 +363,36 @@ function saveProfileName() {
     });
 }
 
+// --- NOTICE MODALS LOGIC ---
+function openKstNotice() {
+    document.getElementById('kstNoticeModal').classList.add('active');
+}
+function closeKstNotice() {
+    document.getElementById('kstNoticeModal').classList.remove('active');
+    // Chain into the Stream Guidance modal right after the KST reminder is dismissed
+    openGuidanceModal();
+}
+function openGuidanceModal() {
+    document.getElementById('guidanceModal').classList.add('active');
+}
+function closeGuidanceModal() {
+    document.getElementById('guidanceModal').classList.remove('active');
+}
+
 // --- LIVE EVENTS LOGIC ---
+function formatCardSchedule(ev) {
+    // Supports both legacy single-day events (date/time) and new day1/day2 events
+    if (ev.day1_date || ev.day2_date) {
+        let html = `<div class="day-line">Day 1: <strong>${ev.day1_date || '-'} at ${ev.day1_time || '-'} KST</strong></div>`;
+        if (ev.day2_date) {
+            html += `<div class="day-line">Day 2: <strong>${ev.day2_date} at ${ev.day2_time || '-'} KST</strong></div>`;
+        }
+        return html;
+    }
+    // Fallback for old events created before Day 1 / Day 2 support
+    return `Scheduled:<strong>${ev.date || '-'} at ${ev.time || '-'} KST</strong>`;
+}
+
 function loadLiveEvents() {
     dbRealtime.ref('live_events').on('value', (snapshot) => {
         const container = document.getElementById("events-list");
@@ -316,7 +419,7 @@ function loadLiveEvents() {
                     <div class="event-type">LIVE</div>
                     <div class="card-title">${ev.title}</div>
                     <div class="card-bottom">
-                        <div class="card-date">Scheduled:<br><strong>${ev.date} at ${ev.time}</strong></div>
+                        <div class="card-date">${formatCardSchedule(ev)}</div>
                         <button class="enter-btn" onclick="checkEventAccessAndEnter('${id}', '${targetPage}')">ENTER EVENT</button>
                     </div>
                 </div>
