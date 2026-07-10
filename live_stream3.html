@@ -238,7 +238,7 @@
 </div>
 
 <div class="player-layout" id="main-content" style="display: none;">
-  <a href="live_event" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Login</a>
+  <a href="index.html" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Login</a>
 
   <div id="player-container">
      <div class="artplayer-app"></div>
@@ -419,7 +419,7 @@ if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== a
         </div>
     `;
     setTimeout(() => {
-        window.location.replace("index"); 
+        window.location.replace("index.html"); 
     }, 2000);
 } else {
     // 3. FIREBASE VALIDATION: If local session matches, check if they are actually approved by admin
@@ -452,7 +452,7 @@ if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== a
                                 
                                 if (art) { art.destroy(true); art = null; }
                                 alert("Security Alert: Your account was accessed from another device. This session will be terminated.");
-                                window.location.replace("index");
+                                window.location.replace("index.html");
                             }
                         });
                         
@@ -489,7 +489,7 @@ function triggerLockout(message) {
     
     setTimeout(() => {
         localStorage.removeItem("zone_vault_user");
-        window.location.replace("index"); 
+        window.location.replace("index.html"); 
     }, 3000);
 }
 
@@ -546,9 +546,9 @@ function renderActivePlayer() {
         if (currentStreamUrl.trim() === "") {
             container.innerHTML = `
                 <div class="standby-screen">
-                    <i class="fas fa-broadcast-tower" style="font-size: 36px; margin-bottom: 16px; opacity: 0.5;"></i>
-                    <h2>Standby</h2>
-                    <p>Admin is not starting the stream yet. Please wait.</p>
+                    <i class="fas fa-circle-notch fa-spin" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
+                    <h2>Connecting...</h2>
+                    <p>Looking for the live stream. This updates automatically.</p>
                 </div>
             `;
         } else {
