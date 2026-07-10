@@ -68,8 +68,15 @@
     #player-container { 
         width: 100%; aspect-ratio: 16/9; background: #000; 
         border-radius: 16px; overflow: hidden; 
-        border: 1px solid var(--border-color); box-shadow: var(--shadow-float); 
+        border: 1px solid var(--border-color); 
         position: relative;
+        --ambient-left: rgba(0,0,0,0);
+        --ambient-right: rgba(0,0,0,0);
+        box-shadow:
+            var(--shadow-float),
+            -70px 0 110px -30px var(--ambient-left),
+            70px 0 110px -30px var(--ambient-right);
+        transition: box-shadow 0.9s ease;
     }
     .artplayer-app { width: 100%; height: 100%; }
 
@@ -572,6 +579,64 @@ function renderActivePlayer() {
     }
 }
 
+/* =========================================
+   AMBIENT LIGHT EFFECT (left/right glow based on video content)
+   ========================================= */
+const ambientCanvas = document.createElement('canvas');
+ambientCanvas.width = 32;
+ambientCanvas.height = 18;
+const ambientCtx = ambientCanvas.getContext('2d', { willReadFrequently: true });
+let ambientTimer = null;
+let ambientSupported = true; // flips to false automatically if the stream is CORS-blocked
+
+function averageColor(pixels) {
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+        r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++;
+    }
+    if (!count) return { r: 0, g: 0, b: 0 };
+    return { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
+}
+
+function updateAmbientLight() {
+    if (!ambientSupported || !art || !art.video || art.video.readyState < 2) return;
+    const container = document.getElementById('player-container');
+    if (!container) return;
+
+    try {
+        ambientCtx.drawImage(art.video, 0, 0, ambientCanvas.width, ambientCanvas.height);
+        const stripWidth = 6;
+        const left = ambientCtx.getImageData(0, 0, stripWidth, ambientCanvas.height).data;
+        const right = ambientCtx.getImageData(ambientCanvas.width - stripWidth, 0, stripWidth, ambientCanvas.height).data;
+        const leftColor = averageColor(left);
+        const rightColor = averageColor(right);
+
+        container.style.setProperty('--ambient-left', `rgba(${leftColor.r}, ${leftColor.g}, ${leftColor.b}, 0.6)`);
+        container.style.setProperty('--ambient-right', `rgba(${rightColor.r}, ${rightColor.g}, ${rightColor.b}, 0.6)`);
+    } catch (e) {
+        // Stream is cross-origin without CORS headers, canvas is "tainted" and can't be read.
+        // Disable quietly so the player itself keeps working normally.
+        ambientSupported = false;
+        stopAmbientLight();
+        console.warn('Ambient light disabled — stream does not allow cross-origin pixel reads.', e);
+    }
+}
+
+function startAmbientLight() {
+    if (!ambientSupported) return;
+    stopAmbientLight();
+    ambientTimer = setInterval(updateAmbientLight, 700);
+}
+
+function stopAmbientLight() {
+    if (ambientTimer) { clearInterval(ambientTimer); ambientTimer = null; }
+    const container = document.getElementById('player-container');
+    if (container) {
+        container.style.setProperty('--ambient-left', 'rgba(0,0,0,0)');
+        container.style.setProperty('--ambient-right', 'rgba(0,0,0,0)');
+    }
+}
+
 function setupArtplayer(streamUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
@@ -601,6 +666,7 @@ function setupArtplayer(streamUrl) {
             m3u8: function (video, url, art) {
                 if (Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
+                    video.crossOrigin = 'anonymous'; // needed for ambient light canvas sampling
                     const hls = new Hls(); hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
                     hls.on(Hls.Events.MANIFEST_PARSED, function () {
                         let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
@@ -624,6 +690,14 @@ function setupArtplayer(streamUrl) {
                 html: `<div class="static-watermark">${providedUser}</div>`,
             }
         ],
+    });
+
+    art.on('video:play', () => {
+        startAmbientLight();
+    });
+
+    art.on('destroy', () => {
+        stopAmbientLight();
     });
 
     art.on('video:pause', () => {
