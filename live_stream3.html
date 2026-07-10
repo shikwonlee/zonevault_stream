@@ -288,6 +288,10 @@ let viewerRef = null;
 let isBooted = false; 
 const mySessionId = Date.now().toString() + Math.random().toString(36).substring(2);
 
+// Prevents HLS errors fired while we're intentionally tearing down a player (e.g. switching
+// servers) from being misread as a real AngelThump stream drop.
+let suppressStreamErrors = false;
+
 /* =========================================
    ANGELTHUMP AUTO-DETECT (Server 1)
    ========================================= */
@@ -415,7 +419,7 @@ if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== a
         </div>
     `;
     setTimeout(() => {
-        window.location.replace("index.html"); 
+        window.location.replace("index"); 
     }, 2000);
 } else {
     // 3. FIREBASE VALIDATION: If local session matches, check if they are actually approved by admin
@@ -448,7 +452,7 @@ if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== a
                                 
                                 if (art) { art.destroy(true); art = null; }
                                 alert("Security Alert: Your account was accessed from another device. This session will be terminated.");
-                                window.location.replace("index.html");
+                                window.location.replace("index");
                             }
                         });
                         
@@ -485,7 +489,7 @@ function triggerLockout(message) {
     
     setTimeout(() => {
         localStorage.removeItem("zone_vault_user");
-        window.location.replace("index.html"); 
+        window.location.replace("index"); 
     }, 3000);
 }
 
@@ -530,7 +534,13 @@ function renderActivePlayer() {
 
     const container = document.getElementById("player-container");
 
-    if (art) { art.destroy(true); art = null; }
+    if (art) {
+        suppressStreamErrors = true;
+        art.destroy(true); 
+        art = null;
+        // Let any errors fired synchronously during teardown settle before listening again
+        setTimeout(() => { suppressStreamErrors = false; }, 300);
+    }
 
     if (currentServer === 1) {
         if (currentStreamUrl.trim() === "") {
@@ -601,7 +611,7 @@ function setupArtplayer(streamUrl) {
                         });
                     });
                     hls.on(Hls.Events.ERROR, function (event, data) {
-                        if (data.fatal) {
+                        if (data.fatal && !suppressStreamErrors) {
                             handleAngelThumpDrop();
                         }
                     });
