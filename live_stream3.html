@@ -66,27 +66,18 @@
     }
     .back-btn:hover { color: var(--text-main); }
 
-    .player-glow-wrapper {
-        position: relative;
-    }
-
     .ambient-backdrop {
         position: absolute;
-        top: -14%; left: -12%; right: -12%; bottom: -14%;
-        width: auto; height: auto;
+        inset: 0;
+        width: 100%; height: 100%;
         object-fit: cover;
         z-index: 0;
-        filter: blur(55px) saturate(1.6) brightness(0.85);
+        filter: blur(45px) saturate(1.5) brightness(0.65);
         opacity: 0;
-        border-radius: 16px;
-        transition: opacity 1s ease;
+        transition: opacity 0.8s ease;
         pointer-events: none;
     }
-    .ambient-backdrop.ambient-active { opacity: 0.75; }
-
-    @media (max-width: 768px) {
-        .ambient-backdrop { top: -6%; left: -6%; right: -6%; bottom: -6%; filter: blur(35px) saturate(1.6) brightness(0.85); }
-    }
+    .ambient-backdrop.ambient-active { opacity: 0.95; }
 
     #player-container { 
         width: 100%; aspect-ratio: 16/9; background: #000; 
@@ -265,11 +256,8 @@
 <div class="player-layout" id="main-content" style="display: none;">
   <a href="index.html" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Login</a>
 
-  <div class="player-glow-wrapper">
-      <video id="ambient-video" class="ambient-backdrop" muted playsinline></video>
-      <div id="player-container">
-         <div class="artplayer-app"></div>
-      </div>
+  <div id="player-container">
+     <div class="artplayer-app"></div>
   </div>
 
   <div class="meta-container">
@@ -601,15 +589,32 @@ function renderActivePlayer() {
 }
 
 /* =========================================
-   AMBIENT LIGHT EFFECT (blurred duplicate stream behind the player)
-   Sidesteps CORS entirely — no pixel reading, just a second video
-   playing the same stream, muted, scaled up and blurred with CSS.
+   AMBIENT LIGHT EFFECT (fills the black letterbox/pillarbox bars
+   inside the player itself — especially on mobile fullscreen where
+   the screen ratio doesn't match the 16:9 stream).
+   Must live INSIDE ArtPlayer's fullscreen root element, otherwise
+   it disappears the moment native Fullscreen API kicks in.
    ========================================= */
 let ambientHls = null;
+let ambientVideoEl = null;
+
+function mountAmbientVideo() {
+    if (!art || !art.template || !art.template.$player) return null;
+    if (ambientVideoEl && art.template.$player.contains(ambientVideoEl)) return ambientVideoEl;
+
+    ambientVideoEl = document.createElement('video');
+    ambientVideoEl.className = 'ambient-backdrop';
+    ambientVideoEl.muted = true;
+    ambientVideoEl.playsInline = true;
+    ambientVideoEl.setAttribute('playsinline', '');
+    // Insert as the first child so it paints behind the real video, controls, and watermark layer
+    art.template.$player.insertBefore(ambientVideoEl, art.template.$player.firstChild);
+    return ambientVideoEl;
+}
 
 function startAmbientLight(streamUrl) {
     stopAmbientLight();
-    const ambientVideo = document.getElementById('ambient-video');
+    const ambientVideo = mountAmbientVideo();
     if (!ambientVideo || !streamUrl) return;
 
     if (Hls.isSupported()) {
@@ -632,12 +637,13 @@ function startAmbientLight(streamUrl) {
 }
 
 function stopAmbientLight() {
-    const ambientVideo = document.getElementById('ambient-video');
-    if (ambientVideo) {
-        ambientVideo.classList.remove('ambient-active');
-        ambientVideo.pause();
-        ambientVideo.removeAttribute('src');
-        ambientVideo.load();
+    if (ambientVideoEl) {
+        ambientVideoEl.classList.remove('ambient-active');
+        ambientVideoEl.pause();
+        ambientVideoEl.removeAttribute('src');
+        ambientVideoEl.load();
+        if (ambientVideoEl.parentNode) ambientVideoEl.parentNode.removeChild(ambientVideoEl);
+        ambientVideoEl = null;
     }
     if (ambientHls) { ambientHls.destroy(); ambientHls = null; }
 }
