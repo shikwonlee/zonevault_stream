@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>VOD | Zone Vault</title>
+<title>Live Stream | Zone Vault</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
 <link rel="icon" href="favicon-new.png" type="image/png" />
@@ -72,6 +72,12 @@
         position: relative;
     }
     .artplayer-app { width: 100%; height: 100%; }
+
+    .art-control-playAndPause,
+    .art-control-progress,
+    .art-control-time {
+        display: none !important;
+    }
 
     /* =========================================
        3. METADATA
@@ -173,17 +179,10 @@
     }
     .btn-close-modal:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: var(--shadow-subtle); }
 
-    /* ArtPlayer subtitle styling override to fit theme */
-    .art-subtitle {
-        font-size: 20px !important;
-        text-shadow: 1px 1px 3px rgba(0,0,0,0.9) !important;
-    }
-
     @media (max-width: 768px) {
         .player-layout { padding: 20px 15px; }
         .video-title { font-size: 20px; }
         .meta-container { flex-direction: column; gap: 15px; }
-        .art-subtitle { font-size: 15px !important; }
     }
 </style>
 
@@ -206,17 +205,17 @@
 <body>
 
 <div id="security-overlay">
-    <p><i class="fas fa-circle-notch fa-spin" style="color: var(--text-main);"></i> Verifying access...</p>
+    <p><i class="fas fa-circle-notch fa-spin" style="color: var(--text-main);"></i> Verifying stream access...</p>
 </div>
 
 <div id="guidelines-modal">
     <div class="modal-content">
-        <h2><i class="fas fa-shield-alt" style="color: var(--admin-color); margin-right: 8px;"></i> VIEWING GUIDELINES</h2>
+        <h2><i class="fas fa-shield-alt" style="color: var(--admin-color); margin-right: 8px;"></i> STREAMING GUIDELINES</h2>
         <ul>
             <li>Avoid sharing any links publicly, especially the one you are currently using to watch.</li>
             <li>Do not take screenshots or screen recordings while the access code is visible on screen.</li>
-            <li>Please refrain from posting screenshots or recordings while the video is being watched.</li>
-            <li>You may share or post your screenshots or screen recordings only after you're done watching.</li>
+            <li>Please refrain from posting screenshots or recordings while the stream is ongoing.</li>
+            <li>You may share or post your screenshots or screen recordings only after the stream has ended.</li>
         </ul>
         <p class="thank-you">Thank you for cooperating!</p>
         <button class="btn-close-modal" onclick="closeGuidelinesModal()">I Understand</button>
@@ -224,7 +223,7 @@
 </div>
 
 <div class="player-layout" id="main-content" style="display: none;">
-  <a href="videos" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Videos</a>
+  <a href="live_event" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Login</a>
 
   <div id="player-container">
      <div class="artplayer-app"></div>
@@ -232,7 +231,7 @@
 
   <div class="meta-container">
       <div class="title-group">
-          <div class="video-title" id="main-title">Loading...</div>
+          <div class="video-title" id="main-title">Awaiting Signal...</div>
           <div class="user-badge" id="username-badge">
               <i class="fas fa-user-check"></i> @username
           </div>
@@ -255,14 +254,9 @@ firebase.initializeApp(firebaseConfig);
 const dbRealtime = firebase.database();
 
 let art = null;
+let currentStreamUrl = ""; // Admin-controlled stream (from Firebase live_events/stream_url)
 let isListening = false;
 let isUserApproved = false;
-
-// ===== VOD SOURCE (hardcode or swap these for Firebase-driven values later) =====
-const VOD_TITLE_FALLBACK = "VOD Playback";
-const VOD_VIDEO_URL = "https://stream.mux.com/VEdyocDZ8dznS7o9oRKHnB5L1VM8fKfrU02vExu4lJkU.m3u8";
-const VOD_SUBTITLE_URL = "https://res.cloudinary.com/rabnzafj/raw/upload/v1783778026/d1v8.en.en_ouji3a.vtt";
-// ==================================================================================
 
 let viewerRef = null;
 let isBooted = false;
@@ -342,7 +336,7 @@ if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== a
                         isListening = true;
                     }
                 } else {
-                    triggerLockout("You do not have access to this specific video.");
+                    triggerLockout("You do not have access to this specific event.");
                 }
             });
         } else {
@@ -380,22 +374,26 @@ window.addEventListener("beforeunload", function() {
 });
 
 function startListeningToEvent(eventId) {
-    // Pulls the VOD title (and optionally overrides url/subtitle) from Firebase if present,
-    // otherwise falls back to the hardcoded constants above.
     dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
         const ev = snapshot.val();
-        document.getElementById("main-title").innerText = (ev && (ev.stream_title || ev.title)) || VOD_TITLE_FALLBACK;
+        if(!ev) {
+            document.getElementById("main-title").innerText = "Transmission Terminated.";
+            currentStreamUrl = "";
+            if (isUserApproved) renderActivePlayer();
+            return;
+        }
+        document.getElementById("main-title").innerText = ev.stream_title || ev.title;
 
-        if (!art) {
-            renderVodPlayer(
-                (ev && (ev.stream_url || ev.url)) || VOD_VIDEO_URL,
-                (ev && ev.subtitle_url) || VOD_SUBTITLE_URL
-            );
+        // Admin-controlled stream link set in the Admin Panel (Stream Injector)
+        const newUrl = ev.stream_url || ev.url || "";
+        if (newUrl !== currentStreamUrl) {
+            currentStreamUrl = newUrl;
+            if (isUserApproved) renderActivePlayer();
         }
     });
 }
 
-function renderVodPlayer(videoUrl, subtitleUrl) {
+function renderActivePlayer() {
     if (!isUserApproved) return;
 
     const container = document.getElementById("player-container");
@@ -405,22 +403,21 @@ function renderVodPlayer(videoUrl, subtitleUrl) {
         art = null;
     }
 
-    if (!videoUrl || videoUrl.trim() === "") {
+    if (currentStreamUrl.trim() === "") {
         container.innerHTML = `
             <div class="standby-screen">
-                <i class="fas fa-film" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
-                <h2>No Video</h2>
-                <p>This video hasn't been set up yet.</p>
+                <i class="fas fa-broadcast-tower" style="font-size: 36px; margin-bottom: 16px; opacity: 0.5;"></i>
+                <h2>Standby</h2>
+                <p>The stream link has not been activated by the admin yet.</p>
             </div>
         `;
-        return;
+    } else {
+        container.innerHTML = `<div class="artplayer-app"></div>`;
+        setupArtplayer(currentStreamUrl);
     }
-
-    container.innerHTML = `<div class="artplayer-app"></div>`;
-    setupArtplayer(videoUrl, subtitleUrl);
 }
 
-function setupArtplayer(streamUrl, subtitleUrl) {
+function setupArtplayer(streamUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
         url: streamUrl,
@@ -430,25 +427,21 @@ function setupArtplayer(streamUrl, subtitleUrl) {
         fullscreen: true,
         fullscreenWeb: false,
         volume: 0.8,
-        setting: true,
+        setting: false,
         pip: false,
-        playbackRate: true,
+        playbackRate: false,
         aspectRatio: false,
-        miniProgressBar: true,
+        miniProgressBar: false,
 
-        isLive: false,
+        isLive: true,
         theme: '#ffffff',
-
-        subtitle: subtitleUrl ? {
-            url: subtitleUrl,
-            type: 'vtt',
-            style: {
-                fontSize: '20px',
-                textShadow: '1px 1px 3px rgba(0,0,0,0.9)',
-            },
-            encoding: 'utf-8',
-        } : {},
-
+        controls: [
+            {
+                position: 'left',
+                index: 10,
+                html: '<div style="color:#ef4444; font-weight:800; font-size:12px; margin-left:10px; display:flex; align-items:center; gap:6px; letter-spacing: 1px;"><span style="width:8px;height:8px;background:#ef4444;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite;"></span> LIVE</div>',
+            }
+        ],
         customType: {
             m3u8: function (video, url, art) {
                 if (Hls.isSupported()) {
@@ -462,6 +455,13 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                             selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
                         });
                     });
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            // Stream dropped — show standby until admin sets a new stream_url
+                            currentStreamUrl = "";
+                            renderActivePlayer();
+                        }
+                    });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
             }
         },
@@ -471,6 +471,15 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                 html: `<div class="static-watermark">${providedUser}</div>`,
             }
         ],
+    });
+
+    art.on('video:pause', () => {
+        if (art.video.currentTime > 0) {
+            setTimeout(() => {
+                art.video.play().catch(() => {});
+                art.notice.show = 'Live streams cannot be paused.';
+            }, 50);
+        }
     });
 
     art.on('fullscreen', (state) => {
