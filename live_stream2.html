@@ -35,19 +35,25 @@
   .artplayer-app { width: 100%; height: 100%; }
   
   .server-controls { 
-      display: flex; gap: 10px; margin-top: 16px; margin-bottom: 8px; justify-content: flex-start;
+      display: flex; gap: 10px; margin-top: 16px; margin-bottom: 8px; justify-content: flex-start; align-items: center;
   }
   .server-btn {
       background: var(--surface-1); color: var(--text-secondary);
       border: 1px solid var(--border-subtle); padding: 8px 16px;
       border-radius: 6px; cursor: pointer; font-weight: 600;
-      transition: all 0.2s ease;
+      transition: all 0.2s ease; position: relative;
   }
   .server-btn:hover { background: #1f1f23; color: white; }
   .server-btn.active {
       background: var(--brand-color); color: white;
       border-color: var(--brand-color);
   }
+  .live-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: #22c55e; margin-right: 6px; vertical-align: middle;
+      box-shadow: 0 0 6px #22c55e;
+  }
+  .live-dot.offline { background: #52525b; box-shadow: none; }
 
   .standby-screen { 
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
@@ -83,8 +89,8 @@
   </div>
 
   <div class="server-controls">
-      <button class="server-btn active" id="btn-server-1" onclick="switchServer(1)">Server 1</button>
-      <button class="server-btn" id="btn-server-2" onclick="switchServer(2)">Server 2</button>
+      <button class="server-btn active" id="btn-server-1" onclick="switchServer(1)"><span class="live-dot offline" id="dot-server-1"></span>Server 1</button>
+      <button class="server-btn" id="btn-server-2" onclick="switchServer(2)"><span class="live-dot offline" id="dot-server-2"></span>Server 2</button>
   </div>
 
   <div class="video-title" id="main-title">Awaiting Signal...</div>
@@ -112,9 +118,27 @@ const firebaseConfig = {
   appId: "1:417377105074:web:bf27cd8dbbf0cc101005ab"
 };
 firebase.initializeApp(firebaseConfig);
-
-// Gamitin lamang ang Realtime Database
 const dbRealtime = firebase.database();
+
+/* =========================================================
+   ANGELTHUMP CONFIG (Server 1)
+   ---------------------------------------------------------
+   AngelThump's site is a JS app with no public documented
+   REST contract, so this URL pattern is my best-evidenced
+   guess (matches their confirmed "ingest.angelthump.com"
+   naming convention for RTMP push -> "hls.angelthump.com"
+   for playback pull).
+
+   >> Please verify/replace ANGELTHUMP_HLS_URL <<
+   How to check: open https://angelthump.com/prdt while you
+   are LIVE on OBS, open Chrome DevTools > Network tab,
+   filter by "m3u8", and copy the exact request URL you see.
+   Paste it here if it's different from the guess below.
+========================================================= */
+const ANGELTHUMP_USERNAME = "prdt";
+const ANGELTHUMP_HLS_URL = `https://hls.angelthump.com/${ANGELTHUMP_USERNAME}/index.m3u8`;
+const ANGELTHUMP_EMBED_URL = `https://player.angelthump.com/?channel=${ANGELTHUMP_USERNAME}`; // confirmed-working official embed, used as safety fallback
+const ANGELTHUMP_POLL_MS = 15000;
 
 const urlParams = new URLSearchParams(window.location.search);
 let currentEventId = urlParams.get('v');
@@ -122,16 +146,21 @@ let providedUser = urlParams.get('u');
 
 let art = null;
 let currentServer = 1;
-let currentStreamUrl = "";
 let isListening = false;
 let isUserApproved = false;
-
 let viewerRef = null;
+
+// Server 2 (admin-controlled via Firebase) state
+let adminStreamUrl = "";
+
+// Server 1 (AngelThump auto-detect) state
+let angelthumpIsLive = false;
+let angelthumpPollTimer = null;
+let angelthumpUsedFallback = false;
 
 if (!currentEventId || !providedUser) {
     window.location.replace("live_event.html");
 } else {
-    // Pinalitan ng RTDB ang pag-check ng approved users
     dbRealtime.ref("approved_users/" + providedUser).once("value").then((doc) => {
         if (doc.exists()) {
             dbRealtime.ref(`event_access/${currentEventId}/${providedUser}`).on('value', (snap) => {
@@ -143,6 +172,7 @@ if (!currentEventId || !providedUser) {
                     
                     if(!isListening) {
                         startListeningToEvent(currentEventId);
+                        startAngelthumpMonitor();
                         viewerRef = dbRealtime.ref(`active_viewers/${currentEventId}/${providedUser}`);
                         viewerRef.set(true);
                         viewerRef.onDisconnect().remove(); 
@@ -154,6 +184,7 @@ if (!currentEventId || !providedUser) {
                     document.getElementById("player-container").innerHTML = ""; 
                     document.getElementById("main-content").style.display = "none";
                     if(viewerRef) { viewerRef.remove(); }
+                    if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); }
                     window.location.replace("live_event.html"); 
                 }
             });
@@ -167,32 +198,84 @@ if (!currentEventId || !providedUser) {
 
 window.addEventListener("beforeunload", function() {
     if(viewerRef) { viewerRef.remove(); }
+    if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); }
 });
 
+/* ---------------- SERVER 2: admin-controlled stream (Firebase) ---------------- */
 function startListeningToEvent(eventId) {
     dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
         const ev = snapshot.val();
         if(!ev) { 
             document.getElementById("main-title").innerText = "Transmission Terminated."; 
+            adminStreamUrl = "";
+            document.getElementById('dot-server-2').classList.add('offline');
+            if (currentServer === 2 && isUserApproved) renderActivePlayer();
             return; 
         }
         
-        document.getElementById("main-title").innerText = ev.stream_title || ev.title;
-        currentStreamUrl = ev.stream_url || ev.url || "";
+        if (currentServer === 1) {
+            // keep title reflecting whichever server is active; only update title from Firebase when on server 2
+        } else {
+            document.getElementById("main-title").innerText = ev.stream_title || ev.title;
+        }
+        adminStreamUrl = ev.stream_url || ev.url || "";
+        document.getElementById('dot-server-2').classList.toggle('offline', adminStreamUrl.trim() === "");
         
-        if (currentServer === 1 && isUserApproved) { 
+        if (currentServer === 2 && isUserApproved) { 
             renderActivePlayer(); 
         }
     });
 }
 
+/* ---------------- SERVER 1: AngelThump auto-detect / auto-reconnect ---------------- */
+function startAngelthumpMonitor() {
+    checkAngelthumpLive();
+    angelthumpPollTimer = setInterval(checkAngelthumpLive, ANGELTHUMP_POLL_MS);
+}
+
+function checkAngelthumpLive() {
+    // HEAD request against the HLS manifest: 200 = live, otherwise = offline.
+    // If AngelThump's CDN blocks cross-origin requests, this will reject and
+    // we fall back to treating the channel as offline (standby stays up).
+    fetch(ANGELTHUMP_HLS_URL, { method: 'HEAD', cache: 'no-store', mode: 'cors' })
+        .then((res) => {
+            handleAngelthumpStatus(res.ok);
+        })
+        .catch(() => {
+            handleAngelthumpStatus(false);
+        });
+}
+
+function handleAngelthumpStatus(isLive) {
+    const wasLive = angelthumpIsLive;
+    angelthumpIsLive = isLive;
+    document.getElementById('dot-server-1').classList.toggle('offline', !isLive);
+
+    if (currentServer !== 1 || !isUserApproved) return;
+
+    // Only re-render when the state actually changed (went live, or went offline / needs reconnect)
+    if (isLive !== wasLive || (isLive && !art)) {
+        renderActivePlayer();
+    }
+}
+
+/* ---------------- SHARED RENDER / SWITCH LOGIC ---------------- */
 function switchServer(serverNum) {
     if (currentServer === serverNum || !isUserApproved) return;
     
     currentServer = serverNum;
     document.getElementById('btn-server-1').classList.toggle('active', serverNum === 1);
     document.getElementById('btn-server-2').classList.toggle('active', serverNum === 2);
+
+    if (serverNum === 1) {
+        document.getElementById("main-title").innerText = angelthumpIsLive
+            ? `${ANGELTHUMP_USERNAME} is live`
+            : "Awaiting Signal...";
+    }
     
+    // Renders instantly based on already-known live status for that server,
+    // so switching tabs never flashes a standby screen if that server is
+    // actually live right now.
     renderActivePlayer();
 }
 
@@ -200,35 +283,36 @@ function renderActivePlayer() {
     if (!isUserApproved) return; 
 
     const container = document.getElementById("player-container");
-
     if (art) { art.destroy(true); art = null; }
 
     if (currentServer === 1) {
-        if (currentStreamUrl.trim() === "") {
-            container.innerHTML = `
-                <div class="standby-screen">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <h2>Standby</h2>
-                    <p>The stream link has not been activated by the admin yet.</p>
-                </div>
-            `;
-        } else {
-            container.innerHTML = `<div class="artplayer-app"></div>`;
-            setupArtplayer(currentStreamUrl);
+        if (!angelthumpIsLive) {
+            showStandby(container, "Standby", `@${ANGELTHUMP_USERNAME} is currently offline on AngelThump.`);
+            return;
         }
+        container.innerHTML = `<div class="artplayer-app"></div>`;
+        setupArtplayer(ANGELTHUMP_HLS_URL);
 
     } else if (currentServer === 2) {
-        container.innerHTML = `
-            <iframe 
-                src="https://player.angelthump.com/?channel=tenthreedee" 
-                style="width: 100%; height: 100%; border: none; display: block;" 
-                allow="fullscreen"
-                allowfullscreen="true">
-            </iframe>
-        `;
+        if (adminStreamUrl.trim() === "") {
+            showStandby(container, "Standby", "The stream link has not been activated by the admin yet.");
+            return;
+        }
+        container.innerHTML = `<div class="artplayer-app"></div>`;
+        setupArtplayer(adminStreamUrl);
     }
+}
+
+function showStandby(container, title, message) {
+    container.innerHTML = `
+        <div class="standby-screen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h2>${title}</h2>
+            <p>${message}</p>
+        </div>
+    `;
 }
 
 function setupArtplayer(streamUrl) {
@@ -244,7 +328,11 @@ function setupArtplayer(streamUrl) {
             m3u8: function (video, url, art) {
                 if (Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
-                    const hls = new Hls(); hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
+                    const hls = new Hls();
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    art.hls = hls;
+
                     hls.on(Hls.Events.MANIFEST_PARSED, function () {
                         let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
                         levels.unshift({ default: true, html: 'Auto', index: -1 });
@@ -252,6 +340,22 @@ function setupArtplayer(streamUrl) {
                             name: 'quality', index: 10, position: 'right', html: 'Quality',
                             selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
                         });
+                    });
+
+                    // If the source dies mid-playback (streamer went offline / dropped),
+                    // fall back to standby and let the relevant monitor pick the reconnect back up.
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            if (currentServer === 1) {
+                                angelthumpIsLive = false;
+                                document.getElementById('dot-server-1').classList.add('offline');
+                                if (currentServer === 1) renderActivePlayer();
+                            } else if (currentServer === 2) {
+                                adminStreamUrl = "";
+                                document.getElementById('dot-server-2').classList.add('offline');
+                                if (currentServer === 2) renderActivePlayer();
+                            }
+                        }
                     });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
             }
