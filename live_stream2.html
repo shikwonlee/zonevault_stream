@@ -5,103 +5,267 @@
 <title>Live | Zone Vault</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
+<link rel="icon" href="favicon-new.png" type="image/png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script> <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
 
 <style>
-  :root {
-      --surface-bg: #0a0a0c;
-      --surface-1: #141414;
-      --border-subtle: rgba(255, 255, 255, 0.08);
-      --text-primary: #ffffff;
-      --text-secondary: #a1a1aa;
-      --brand-color: #e53935; 
-  }
-  * { box-sizing: border-box; }
-  body {
-    background-color: var(--surface-bg); color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    margin: 0; padding: 16px; min-height: 100vh;
-  }
-  .player-layout { max-width: 1200px; margin: 0 auto; }
-  
-  #player-container { 
-      width: 100%; aspect-ratio: 16/9; background: #000; 
-      border-radius: 8px; overflow: hidden; 
-      border: 1px solid var(--border-subtle); box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
-      position: relative;
-  }
-  .artplayer-app { width: 100%; height: 100%; }
-  
-  .server-controls { 
-      display: flex; gap: 10px; margin-top: 16px; margin-bottom: 8px; justify-content: flex-start;
-  }
-  .server-btn {
-      background: var(--surface-1); color: var(--text-secondary);
-      border: 1px solid var(--border-subtle); padding: 8px 16px;
-      border-radius: 6px; cursor: pointer; font-weight: 600;
-      transition: all 0.2s ease;
-  }
-  .server-btn:hover { background: #1f1f23; color: white; }
-  .server-btn.active {
-      background: var(--brand-color); color: white;
-      border-color: var(--brand-color);
-  }
+    :root {
+        --bg-color: #09090b;
+        --card-bg: #18181b;
+        --border-color: #27272a;
+        --hover-bg: #27272a;
+        --shadow-subtle: 0 4px 12px rgba(0, 0, 0, 0.4);
+        --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.6);
 
-  .standby-screen { 
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-      display: flex; flex-direction: column; align-items: center; justify-content: center; 
-      background: #0a0a0c; color: var(--text-secondary); text-align: center; padding: 20px;
-  }
-  
-  .video-title { margin-top: 8px; font-size: 20px; font-weight: 600; line-height: 1.3; color: var(--text-primary); }
-  .user-badge { margin-top: 8px; background: var(--surface-1); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid var(--border-subtle); display: inline-block;}
-  
-  .back-btn { display: inline-block; margin-bottom: 16px; text-decoration: none; color: var(--text-secondary); font-size: 14px; font-weight: 500; }
-  .back-btn:hover { color: var(--text-primary); }
+        --text-main: #ffffff;
+        --text-muted: #a1a1aa;
+        --admin-color: #ef4444;
+        --input-bg: #27272a;
+        --status-online: #22c55e;
+    }
 
-  @media (min-width: 768px) {
-      body { padding: 24px; }
-      #player-container { border-radius: 12px; }
-      .video-title { font-size: 26px; }
-      .back-btn { margin-bottom: 24px; }
-  }
+    * { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+
+    body {
+        background-color: var(--bg-color); color: var(--text-main);
+        font-family: 'Outfit', sans-serif;
+        min-height: 100vh;
+        display: flex; flex-direction: column;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        -webkit-user-drag: none;
+    }
+
+    .player-layout {
+        width: 100%; max-width: 1200px; margin: 0 auto; padding: 30px 20px;
+        animation: fadeIn 0.4s ease forwards; opacity: 0; transform: translateY(10px);
+    }
+    @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+
+    .back-btn {
+        display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px;
+        text-decoration: none; color: var(--text-muted); font-size: 14px; font-weight: 600;
+        transition: color 0.2s ease;
+    }
+    .back-btn:hover { color: var(--text-main); }
+
+    #player-container {
+        width: 100%; aspect-ratio: 16/9; background: #000;
+        border-radius: 16px; overflow: hidden;
+        border: 1px solid var(--border-color); box-shadow: var(--shadow-float);
+        position: relative;
+    }
+    .artplayer-app { width: 100%; height: 100%; }
+
+    .meta-container {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        margin-top: 25px; gap: 20px; flex-wrap: wrap;
+    }
+    .title-group { flex: 1; min-width: 250px; }
+    .video-title { margin-bottom: 10px; font-size: 24px; font-weight: 700; line-height: 1.3; color: var(--text-main); }
+
+    .user-badge {
+        background: var(--input-bg); padding: 8px 14px; border-radius: 8px;
+        font-size: 12px; font-weight: 600; border: 1px solid var(--border-color);
+        display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted);
+    }
+    .user-badge i { color: var(--status-online); }
+
+    /* =========================================
+       SERVER SELECTOR
+       ========================================= */
+    .server-selector {
+        display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; align-items: center;
+    }
+    .server-btn {
+        padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border-color);
+        background: var(--card-bg); color: var(--text-muted); font-family: inherit;
+        font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.2s ease;
+        display: inline-flex; align-items: center; gap: 8px;
+    }
+    .server-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+    .server-btn.active {
+        background: var(--text-main); color: var(--bg-color); border-color: var(--text-main);
+    }
+    .server-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: #52525b; transition: 0.2s; }
+    .server-btn .dot.live { background: #22c55e; box-shadow: 0 0 6px 1px #22c55e; }
+    .server-btn .dot.off { background: #ef4444; }
+    .server-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* =========================================
+       STRICT WATERMARK SYSTEM
+       ========================================= */
+    @keyframes pulse {
+        0% { transform: scale(0.95); opacity: 0.5; }
+        50% { transform: scale(1.1); opacity: 1; }
+        100% { transform: scale(0.95); opacity: 0.5; }
+    }
+
+    .static-watermark {
+        position: absolute !important;
+        top: auto !important;
+        right: auto !important;
+        font-family: monospace;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.65);
+        text-transform: none;
+        text-shadow: 1px 1px 4px rgba(0,0,0,0.9);
+        z-index: 20;
+        pointer-events: none;
+    }
+
+    @media (min-width: 769px) {
+        .static-watermark {
+            bottom: 70px !important;
+            left: 40px !important;
+            font-size: 16px !important;
+        }
+    }
+
+    @media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
+        .static-watermark {
+            bottom: 20px !important;
+            left: 12% !important;
+            font-size: 13px !important;
+        }
+    }
+
+    .standby-screen {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: var(--bg-color); color: var(--text-muted); text-align: center; padding: 20px;
+    }
+    .standby-screen h2 { color: var(--text-main); font-size: 20px; margin-bottom: 8px; font-weight: 600;}
+    .standby-screen p { font-size: 14px; }
+    .standby-screen .retry-note { margin-top: 14px; font-size: 12px; color: #52525b; font-family: monospace; }
+
+    #security-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: var(--bg-color); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+    }
+    #security-overlay p { font-size: 16px; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 10px; }
+
+    #guidelines-modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.8); z-index: 10000; display: none;
+        align-items: center; justify-content: center; padding: 20px;
+        animation: fadeInOverlay 0.3s ease;
+    }
+    @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal-content {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 16px; padding: 35px 30px; max-width: 450px; width: 100%;
+        box-shadow: var(--shadow-float); text-align: left;
+        transform: translateY(10px); animation: slideUp 0.3s ease forwards;
+    }
+    @keyframes slideUp { to { transform: translateY(0); } }
+
+    .modal-content h2 { margin-top: 0; margin-bottom: 20px; font-size: 18px; color: var(--text-main); font-weight: 800; text-align: center; letter-spacing: 0.5px;}
+    .modal-content ul { padding-left: 20px; color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    .modal-content ul li { margin-bottom: 12px; }
+    .modal-content p.thank-you { text-align: center; font-weight: 600; color: var(--text-main); margin-bottom: 24px;}
+
+    .btn-close-modal {
+        width: 100%; padding: 14px; background: var(--text-main); color: var(--bg-color);
+        border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s ease; font-size: 14px; font-family: inherit;
+    }
+    .btn-close-modal:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: var(--shadow-subtle); }
+
+    .art-subtitle {
+        font-size: 25px !important;
+        z-index: 25 !important;
+        -webkit-text-stroke: 1.5px rgba(0,0,0,0.95) !important;
+        text-stroke: 1.5px rgba(0,0,0,0.95) !important;
+        paint-order: stroke fill !important;
+        text-shadow:
+            0 3px 6px rgba(0,0,0,0.9),
+            0 4px 14px rgba(0,0,0,0.7) !important;
+    }
+
+    @media (max-width: 768px) {
+        .player-layout { padding: 20px 15px; }
+        .video-title { font-size: 20px; }
+        .meta-container { flex-direction: column; gap: 15px; }
+        .art-subtitle {
+            font-size: 14px !important;
+            -webkit-text-stroke: 1px rgba(0,0,0,0.95) !important;
+            text-stroke: 1px rgba(0,0,0,0.95) !important;
+            paint-order: stroke fill !important;
+            text-shadow:
+                0 2px 5px rgba(0,0,0,0.9),
+                0 3px 10px rgba(0,0,0,0.7) !important;
+        }
+    }
 </style>
+
+<script>
+    if (window.top !== window.self) {
+        window.top.location = window.self.location;
+    }
+
+    document.addEventListener('contextmenu', event => event.preventDefault());
+    document.onkeydown = function(e) {
+        if(e.keyCode == 123) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) { return false; }
+    };
+</script>
+
 </head>
 <body>
 
-<div id="security-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--surface-bg); z-index: 999; display: flex; align-items: center; justify-content: center;">
-    <p>Verifying access...</p>
+<div id="security-overlay">
+    <p><i class="fas fa-circle-notch fa-spin" style="color: var(--text-main);"></i> Verifying access...</p>
+</div>
+
+<div id="guidelines-modal">
+    <div class="modal-content">
+        <h2><i class="fas fa-shield-alt" style="color: var(--admin-color); margin-right: 8px;"></i> VIEWING GUIDELINES</h2>
+        <ul>
+            <li>Avoid sharing any links publicly, especially the one you are currently using to watch.</li>
+            <li>Do not take screenshots or screen recordings while the access code is visible on screen.</li>
+            <li>Please refrain from posting screenshots or recordings while the video is being watched.</li>
+            <li>You may share or post your screenshots or screen recordings only after you're done watching.</li>
+        </ul>
+        <p class="thank-you">Thank you for cooperating!</p>
+        <button class="btn-close-modal" onclick="closeGuidelinesModal()">I Understand</button>
+    </div>
 </div>
 
 <div class="player-layout" id="main-content" style="display: none;">
-  <a href="live_event.html" class="back-btn">&larr; Back to Events</a>
+  <a href="videos" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Videos</a>
 
   <div id="player-container">
      <div class="artplayer-app"></div>
   </div>
 
-  <div class="server-controls">
-      <button class="server-btn active" id="btn-server-1" onclick="switchServer(1)">Server 1</button>
-      <button class="server-btn" id="btn-server-2" onclick="switchServer(2)">Server 2</button>
-  </div>
+  <div class="server-selector" id="server-selector"></div>
 
-  <div class="video-title" id="main-title">Awaiting Signal...</div>
-  <div class="user-badge" id="username-badge">User: @username</div>
+  <div class="meta-container">
+      <div class="title-group">
+          <div class="video-title" id="main-title">Loading...</div>
+          <div class="user-badge" id="username-badge">
+              <i class="fas fa-user-check"></i> @username
+          </div>
+      </div>
+  </div>
 </div>
 
 <script>
-// Prevent Right-Click and Inspect Element Shortcuts
-document.addEventListener('contextmenu', event => event.preventDefault());
-document.onkeydown = function(e) {
-    if(e.keyCode == 123) { return false; } 
-    if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) { return false; } 
-    if(e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) { return false; } 
-    if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) { return false; } 
-    if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) { return false; } 
-}
-
 const firebaseConfig = {
   apiKey: "AIzaSyAeaQVRzcL9qvGRKpqGyPKolTMltieN3zU",
   authDomain: "notif-bfe68.firebaseapp.com",
@@ -112,277 +276,404 @@ const firebaseConfig = {
   appId: "1:417377105074:web:bf27cd8dbbf0cc101005ab"
 };
 firebase.initializeApp(firebaseConfig);
+
 const dbRealtime = firebase.database();
 
-/* =========================================================
-   ANGELTHUMP CONFIG (Server 1)
-   ---------------------------------------------------------
-   The actual HLS URL changes every time you go live, e.g.:
-   https://sgp1.angelthump.com/hls/<base64(createdAt+username)>_prdt/index.m3u8
-   (region prefix + a per-session id are baked into the path)
+let art = null;
+let isListening = false;
+let isUserApproved = false;
 
-   So it's derived fresh every poll from AngelThump's v2 API:
-   base64(createdAt + username) + "_" + username, served from
-   a region host matching the streamer's ingest server. If the
-   direct fetch gets CORS-blocked, it retries through a
-   read-only proxy (allorigins.win) automatically.
-========================================================= */
-const ANGELTHUMP_USERNAME = "prdt";
-const ANGELTHUMP_API_ENDPOINT = `https://api.angelthump.com/v2/streams/${ANGELTHUMP_USERNAME}`;
-const ANGELTHUMP_POLL_MS = 8000;
-let angelthumpHlsUrl = "";      // resolved fresh on every check
-let angelthumpSessionKey = null; // tracks createdAt so a restarted OBS session triggers a reconnect
+/* ============================================================
+   SERVER 1 = AngelThump (auto-detect / auto-start / auto-reconnect)
+   SERVER 2 = Admin-injected m3u8 (from Firebase live_events/{id}.stream_url)
+   ============================================================ */
 
+// currentServer: 1 = AngelThump, 2 = Admin link
+let currentServer = null;
+let currentEventData = { angelthump_channel: "", stream_url: "", stream_subtitle: "" };
+
+// ---- AngelThump polling state (ported from Signal Desk) ----
+const AT_POLL_MS = 5000;
+let atPollTimer = null;
+let atSessionKey = null;
+let atIsLive = false;
+
+function regionHost(server) {
+    const map = { nyc:'nyc3', sfo:'sfo3', ams:'ams3', tor:'tor1', blr:'blr1', syd:'syd1', fra:'fra1', lon:'lon1', sgp:'sgp1' };
+    const prefix = (server || '').split('-')[0];
+    return map[prefix] || (prefix + '1');
+}
+
+function deriveManifest(data) {
+    const user = data && data.user, ingest = data && data.ingest;
+    if (!user || !ingest || data.type !== 'live') return null;
+    const segment = btoa(data.createdAt + user.username) + '_' + user.username;
+    const host = regionHost(ingest.server);
+    return { url: 'https://' + host + '.angelthump.com/hls/' + segment + '/index.m3u8', sessionKey: data.createdAt };
+}
+
+async function fetchAngelThumpStream(channel) {
+    const endpoint = 'https://api.angelthump.com/v2/streams/' + encodeURIComponent(channel);
+    try {
+        const res = await fetch(endpoint, { cache: 'no-store' });
+        if (res.status === 404) return { offline: true };
+        if (!res.ok) throw new Error('status ' + res.status);
+        return await res.json();
+    } catch (err) {
+        try {
+            const res2 = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(endpoint), { cache: 'no-store' });
+            if (res2.status === 404) return { offline: true };
+            if (!res2.ok) throw new Error('proxy status ' + res2.status);
+            return await res2.json();
+        } catch (err2) {
+            throw err2;
+        }
+    }
+}
+
+async function pollAngelThump() {
+    const channel = currentEventData.angelthump_channel;
+    if (!channel) return;
+
+    let data;
+    try {
+        data = await fetchAngelThumpStream(channel);
+    } catch (e) {
+        // network hiccup, keep polling — don't flip live state on a transient failure
+        return;
+    }
+
+    if (!data || data.offline) {
+        setAngelThumpLive(false);
+        return;
+    }
+
+    const manifest = deriveManifest(data);
+    if (!manifest) {
+        setAngelThumpLive(false);
+        return;
+    }
+
+    setAngelThumpLive(true, data.title || data.stream_title || null);
+
+    if (manifest.sessionKey !== atSessionKey) {
+        // new broadcast session -> (re)attach, this is what makes it "auto reconnect"
+        atSessionKey = manifest.sessionKey;
+        if (currentServer === 1) {
+            attachStream(manifest.url, null);
+        }
+    }
+}
+
+function setAngelThumpLive(isLive, liveTitle) {
+    const changed = atIsLive !== isLive;
+    atIsLive = isLive;
+    updateServerButtons();
+
+    if (!isLive) {
+        atSessionKey = null;
+        if (currentServer === 1) {
+            showStandby("AngelThump stream is offline.", "Auto-checking every " + (AT_POLL_MS/1000) + "s — this page will connect automatically once it goes live.");
+        }
+    } else if (changed && liveTitle) {
+        document.getElementById("main-title").innerText = liveTitle;
+    }
+}
+
+function startAngelThumpPolling() {
+    if (atPollTimer) clearInterval(atPollTimer);
+    if (!currentEventData.angelthump_channel) return;
+    pollAngelThump(); // immediate check so it auto-starts without waiting for the first interval
+    atPollTimer = setInterval(pollAngelThump, AT_POLL_MS);
+}
+
+function stopAngelThumpPolling() {
+    if (atPollTimer) { clearInterval(atPollTimer); atPollTimer = null; }
+}
+
+// ==================================================================================
+
+let viewerRef = null;
+let isBooted = false;
+const mySessionId = Date.now().toString() + Math.random().toString(36).substring(2);
+
+function checkGuidelinesModal() {
+    const today = new Date().toDateString();
+    const lastSeen = localStorage.getItem('zone_vault_guidelines_date');
+
+    if (lastSeen !== today) {
+        document.getElementById('guidelines-modal').style.display = 'flex';
+    }
+}
+
+function closeGuidelinesModal() {
+    const today = new Date().toDateString();
+    localStorage.setItem('zone_vault_guidelines_date', today);
+    document.getElementById('guidelines-modal').style.display = 'none';
+
+    if(art) {
+        art.play().catch(() => {});
+    }
+}
+
+/* =========================================
+   STRICT SECURITY & SESSION VALIDATION
+   ========================================= */
 const urlParams = new URLSearchParams(window.location.search);
 let currentEventId = urlParams.get('v');
 let providedUser = urlParams.get('u');
 
-let art = null;
-let currentServer = 1;
-let isListening = false;
-let isUserApproved = false;
-let viewerRef = null;
+let activeSessionUser = localStorage.getItem("zone_vault_user");
 
-// Server 2 (admin-controlled via Firebase) state
-let adminStreamUrl = "";
-
-// Server 1 (AngelThump auto-detect) state
-let angelthumpIsLive = false;
-let angelthumpPollTimer = null;
-let angelthumpUsedFallback = false;
-
-if (!currentEventId || !providedUser) {
-    window.location.replace("live_event.html");
+if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== activeSessionUser) {
+    document.body.innerHTML = `
+        <div style="display:flex; height:100vh; align-items:center; justify-content:center; background:#09090b; color:#ef4444; font-family:sans-serif; flex-direction:column;">
+            <i class="fas fa-ban" style="font-size: 50px; margin-bottom: 15px;"></i>
+            <h2>UNAUTHORIZED ACCESS</h2>
+            <p style="color:#a1a1aa; margin-top:10px;">You are not logged in or your session is invalid.</p>
+        </div>
+    `;
+    setTimeout(() => {
+        window.location.replace("index");
+    }, 2000);
 } else {
     dbRealtime.ref("approved_users/" + providedUser).once("value").then((doc) => {
         if (doc.exists()) {
+
             dbRealtime.ref(`event_access/${currentEventId}/${providedUser}`).on('value', (snap) => {
                 if (snap.val() === true) {
                     isUserApproved = true;
                     document.getElementById("security-overlay").style.display = "none";
                     document.getElementById("main-content").style.display = "block";
-                    document.getElementById("username-badge").innerText = `User: ${providedUser}`;
-                    
+                    document.getElementById("username-badge").innerHTML = `<i class="fas fa-user-check"></i> ${providedUser}`;
+
+                    checkGuidelinesModal();
+
                     if(!isListening) {
                         startListeningToEvent(currentEventId);
-                        startAngelthumpMonitor();
+
                         viewerRef = dbRealtime.ref(`active_viewers/${currentEventId}/${providedUser}`);
-                        viewerRef.set(true);
-                        viewerRef.onDisconnect().remove(); 
+                        viewerRef.set(mySessionId);
+                        viewerRef.onDisconnect().remove();
+
+                        viewerRef.on('value', (sessionSnap) => {
+                            const activeSession = sessionSnap.val();
+                            if (activeSession && activeSession !== mySessionId) {
+                                isBooted = true;
+                                viewerRef.onDisconnect().cancel();
+
+                                if (art) { art.destroy(true); art = null; }
+                                stopAngelThumpPolling();
+                                alert("Security Alert: Your account was accessed from another device. This session will be terminated.");
+                                window.location.replace("index");
+                            }
+                        });
+
                         isListening = true;
                     }
                 } else {
-                    isUserApproved = false;
-                    if (art) { art.destroy(true); art = null; }
-                    document.getElementById("player-container").innerHTML = ""; 
-                    document.getElementById("main-content").style.display = "none";
-                    if(viewerRef) { viewerRef.remove(); }
-                    if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); }
-                    window.location.replace("live_event.html"); 
+                    triggerLockout("You do not have access to this specific video.");
                 }
             });
         } else {
-            window.location.replace("index.html"); 
+            triggerLockout("Your account has not been approved by the admin.");
         }
     }).catch(() => {
-        window.location.replace("index.html");
+        triggerLockout("Database connection error. Please try again.");
     });
+}
+
+function triggerLockout(message) {
+    isUserApproved = false;
+    if (art) { art.destroy(true); art = null; }
+    stopAngelThumpPolling();
+
+    document.getElementById("player-container").innerHTML = "";
+    document.getElementById("main-content").style.display = "none";
+    document.getElementById("security-overlay").innerHTML = `
+        <div style="text-align:center;">
+            <i class="fas fa-lock" style="font-size: 40px; color: #ef4444; margin-bottom: 15px;"></i>
+            <h3 style="color:#ef4444; margin-bottom: 10px;">Access Denied</h3>
+            <p style="color:#a1a1aa;">${message}</p>
+        </div>
+    `;
+
+    if(viewerRef && !isBooted) { viewerRef.remove(); }
+
+    setTimeout(() => {
+        localStorage.removeItem("zone_vault_user");
+        window.location.replace("index.html");
+    }, 3000);
 }
 
 window.addEventListener("beforeunload", function() {
-    if(viewerRef) { viewerRef.remove(); }
-    if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); }
+    if(viewerRef && !isBooted) { viewerRef.remove(); }
 });
 
-/* ---------------- SERVER 2: admin-controlled stream (Firebase) ---------------- */
 function startListeningToEvent(eventId) {
+    // Pulls title + both server sources (AngelThump channel + admin m3u8 link) live from Firebase.
     dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
-        const ev = snapshot.val();
-        if(!ev) { 
-            document.getElementById("main-title").innerText = "Transmission Terminated."; 
-            adminStreamUrl = "";
-            if (currentServer === 2 && isUserApproved) renderActivePlayer();
-            return; 
-        }
-        
-        if (currentServer === 1) {
-            // keep title reflecting whichever server is active; only update title from Firebase when on server 2
-        } else {
-            document.getElementById("main-title").innerText = ev.stream_title || ev.title;
-        }
-        adminStreamUrl = ev.stream_url || ev.url || "";
-        
-        if (currentServer === 2 && isUserApproved) { 
-            renderActivePlayer(); 
+        const ev = snapshot.val() || {};
+        document.getElementById("main-title").innerText = ev.stream_title || ev.title || "Live Stream";
+
+        currentEventData.angelthump_channel = (ev.angelthump_channel || "").trim();
+        currentEventData.stream_url = ev.stream_url || ev.url || "";
+        currentEventData.stream_subtitle = ev.stream_subtitle || "";
+
+        renderServerButtons();
+
+        if (currentServer === null) {
+            // Auto-pick a default server: prefer AngelThump if configured, else the admin link.
+            if (currentEventData.angelthump_channel) {
+                selectServer(1);
+            } else if (currentEventData.stream_url) {
+                selectServer(2);
+            } else {
+                showStandby("No video sources configured yet.", "Check back once the admin sets up the stream.");
+            }
+        } else if (currentServer === 1 && currentEventData.angelthump_channel) {
+            startAngelThumpPolling();
+        } else if (currentServer === 2 && currentEventData.stream_url) {
+            attachStream(currentEventData.stream_url, currentEventData.stream_subtitle);
         }
     });
 }
 
-/* ---------------- SERVER 1: AngelThump auto-detect / auto-reconnect ---------------- */
-function startAngelthumpMonitor() {
-    checkAngelthumpLive();
-    angelthumpPollTimer = setInterval(checkAngelthumpLive, ANGELTHUMP_POLL_MS);
+function renderServerButtons() {
+    const wrap = document.getElementById("server-selector");
+    if (!wrap) return;
+
+    const hasAT = !!currentEventData.angelthump_channel;
+    const hasAdmin = !!currentEventData.stream_url;
+
+    if (!hasAT && !hasAdmin) { wrap.style.display = "none"; return; }
+    wrap.style.display = "flex";
+
+    wrap.innerHTML = `
+        <button class="server-btn ${currentServer === 1 ? 'active' : ''} ${!hasAT ? 'disabled' : ''}" onclick="${hasAT ? 'selectServer(1)' : ''}">
+            <span class="dot ${hasAT ? (atIsLive ? 'live' : 'off') : ''}"></span> Server 1
+        </button>
+        <button class="server-btn ${currentServer === 2 ? 'active' : ''} ${!hasAdmin ? 'disabled' : ''}" onclick="${hasAdmin ? 'selectServer(2)' : ''}">
+            <span class="dot ${hasAdmin ? 'live' : ''}"></span> Server 2
+        </button>
+    `;
 }
 
-// Region prefix used in the RTMP ingest URL -> playback CDN hostname
-function angelthumpRegionHost(server) {
-    const map = { nyc: "nyc3", sfo: "sfo3", ams: "ams3", tor: "tor1", blr: "blr1", syd: "syd1", fra: "fra1", lon: "lon1", sgp: "sgp1" };
-    const prefix = (server || "").split("-")[0];
-    return map[prefix] || (prefix + "1");
+function updateServerButtons() {
+    // lightweight refresh of just the live/offline dot on Server 1 without re-rendering everything
+    renderServerButtons();
 }
 
-// Rebuilds the exact HLS manifest path AngelThump serves for the current
-// live session: base64(createdAt + username) + "_" + username
-function angelthumpDeriveManifest(data) {
-    const user = data && data.user, ingest = data && data.ingest;
-    if (!user || !ingest || data.type !== "live") return null;
-    const segment = btoa(data.createdAt + user.username) + "_" + user.username;
-    const host = angelthumpRegionHost(ingest.server);
-    return {
-        url: `https://${host}.angelthump.com/hls/${segment}/index.m3u8`,
-        sessionKey: data.createdAt
-    };
-}
-
-function angelthumpFetchStream() {
-    return fetch(ANGELTHUMP_API_ENDPOINT, { cache: 'no-store' })
-        .then((r) => { if (!r.ok) throw 0; return r.json(); })
-        .catch(() => {
-            // Direct call likely CORS-blocked from this origin -- retry through a read-only proxy
-            return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(ANGELTHUMP_API_ENDPOINT), { cache: 'no-store' })
-                .then((r) => { if (!r.ok) throw 0; return r.json(); });
-        });
-}
-
-function checkAngelthumpLive() {
-    angelthumpFetchStream()
-        .then((data) => {
-            const manifest = angelthumpDeriveManifest(data);
-            if (manifest) {
-                const isNewSession = manifest.sessionKey !== angelthumpSessionKey;
-                angelthumpSessionKey = manifest.sessionKey;
-                angelthumpHlsUrl = manifest.url;
-                handleAngelthumpStatus(true, isNewSession);
-            } else {
-                angelthumpSessionKey = null;
-                handleAngelthumpStatus(false, false);
-            }
-        })
-        .catch(() => {
-            handleAngelthumpStatus(false, false);
-        });
-}
-
-function handleAngelthumpStatus(isLive, isNewSession) {
-    const wasLive = angelthumpIsLive;
-    angelthumpIsLive = isLive;
-
-    if (currentServer !== 1 || !isUserApproved) return;
-
-    if (isLive && (!wasLive || isNewSession || !art)) {
-        // Went live, OR a brand-new OBS session started (reconnect) -> (re)load the player
-        renderActivePlayer();
-    } else if (!isLive && wasLive) {
-        // Dropped offline -> fall back to standby
-        renderActivePlayer();
-    }
-}
-
-/* ---------------- SHARED RENDER / SWITCH LOGIC ---------------- */
-function switchServer(serverNum) {
-    if (currentServer === serverNum || !isUserApproved) return;
-    
+function selectServer(serverNum) {
+    if (!isUserApproved) return;
     currentServer = serverNum;
-    document.getElementById('btn-server-1').classList.toggle('active', serverNum === 1);
-    document.getElementById('btn-server-2').classList.toggle('active', serverNum === 2);
+    stopAngelThumpPolling();
+    renderServerButtons();
 
     if (serverNum === 1) {
-        document.getElementById("main-title").innerText = angelthumpIsLive
-            ? `${ANGELTHUMP_USERNAME} is live`
-            : "Awaiting Signal...";
+        if (!currentEventData.angelthump_channel) return;
+        atSessionKey = null;
+        showStandby("Connecting to AngelThump…", "Checking channel \"" + currentEventData.angelthump_channel + "\"");
+        startAngelThumpPolling();
+    } else if (serverNum === 2) {
+        if (!currentEventData.stream_url) return;
+        attachStream(currentEventData.stream_url, currentEventData.stream_subtitle);
     }
-    
-    // Renders instantly based on already-known live status for that server,
-    // so switching tabs never flashes a standby screen if that server is
-    // actually live right now.
-    renderActivePlayer();
 }
 
-function renderActivePlayer() {
-    if (!isUserApproved) return; 
-
-    const container = document.getElementById("player-container");
+function showStandby(title, sub) {
+    if (!isUserApproved) return;
     if (art) { art.destroy(true); art = null; }
-
-    if (currentServer === 1) {
-        if (!angelthumpIsLive) {
-            showStandby(container, "Standby", `@${ANGELTHUMP_USERNAME} is currently offline on AngelThump.`);
-            return;
-        }
-        container.innerHTML = `<div class="artplayer-app"></div>`;
-        setupArtplayer(angelthumpHlsUrl);
-
-    } else if (currentServer === 2) {
-        if (adminStreamUrl.trim() === "") {
-            showStandby(container, "Standby", "The stream link has not been activated by the admin yet.");
-            return;
-        }
-        container.innerHTML = `<div class="artplayer-app"></div>`;
-        setupArtplayer(adminStreamUrl);
-    }
-}
-
-function showStandby(container, title, message) {
+    const container = document.getElementById("player-container");
     container.innerHTML = `
         <div class="standby-screen">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <i class="fas fa-film" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
             <h2>${title}</h2>
-            <p>${message}</p>
+            <p>${sub || ''}</p>
         </div>
     `;
 }
 
-function setupArtplayer(streamUrl) {
+function attachStream(videoUrl, subtitleUrl) {
+    if (!isUserApproved) return;
+
+    const container = document.getElementById("player-container");
+
+    if (art) {
+        art.destroy(true);
+        art = null;
+    }
+
+    if (!videoUrl || videoUrl.trim() === "") {
+        showStandby("No Video", "This source hasn't been set up yet.");
+        return;
+    }
+
+    container.innerHTML = `<div class="artplayer-app"></div>`;
+    setupArtplayer(videoUrl, subtitleUrl);
+}
+
+function setupArtplayer(streamUrl, subtitleUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
         url: streamUrl,
         type: 'm3u8',
         autoplay: true,
+
         fullscreen: true,
+        fullscreenWeb: false,
+        volume: 0.8,
+        setting: true,
+        pip: false,
+        playbackRate: true,
+        aspectRatio: false,
+        miniProgressBar: true,
+
         isLive: true,
-        theme: '#e53935',
+        theme: '#ffffff',
+
+        subtitle: subtitleUrl ? {
+            url: subtitleUrl,
+            type: 'vtt',
+            style: {
+                fontSize: '25px',
+                WebkitTextStroke: '1.5px rgba(0,0,0,0.95)',
+                paintOrder: 'stroke fill',
+                textShadow: '0 3px 6px rgba(0,0,0,0.9), 0 4px 14px rgba(0,0,0,0.7)',
+            },
+            encoding: 'utf-8',
+        } : {},
+
         customType: {
             m3u8: function (video, url, art) {
                 if (Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
                     const hls = new Hls();
-                    hls.loadSource(url);
-                    hls.attachMedia(video);
-                    art.hls = hls;
+                    hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
+
+                    // Auto-reconnect on recoverable network/media errors, regardless of server.
+                    hls.on(Hls.Events.ERROR, function (evt, data) {
+                        if (!data.fatal) return;
+                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                            hls.startLoad();
+                        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                            hls.recoverMediaError();
+                        } else {
+                            // Unrecoverable — for Server 1 the AngelThump poller will re-attach
+                            // automatically as soon as a new session/manifest is detected.
+                            if (currentServer === 1) {
+                                showStandby("Reconnecting to AngelThump…", "Waiting for the stream to come back.");
+                            }
+                        }
+                    });
 
                     hls.on(Hls.Events.MANIFEST_PARSED, function () {
                         let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
                         levels.unshift({ default: true, html: 'Auto', index: -1 });
                         art.controls.update({
-                            name: 'quality', index: 10, position: 'right', html: 'Quality',
+                            name: 'quality', index: 20, position: 'right', html: 'Quality',
                             selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
                         });
-                    });
-
-                    // If the source dies mid-playback (streamer went offline / dropped),
-                    // fall back to standby and let the relevant monitor pick the reconnect back up.
-                    hls.on(Hls.Events.ERROR, function (event, data) {
-                        if (data.fatal) {
-                            if (currentServer === 1) {
-                                angelthumpIsLive = false;
-                                if (currentServer === 1) renderActivePlayer();
-                            } else if (currentServer === 2) {
-                                adminStreamUrl = "";
-                                if (currentServer === 2) renderActivePlayer();
-                            }
-                        }
                     });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
             }
@@ -390,10 +681,23 @@ function setupArtplayer(streamUrl) {
         layers: [
             {
                 name: 'username-watermark',
-                html: `<div style="font-family: monospace; font-size: 14px; font-weight: bold; color: rgba(255, 255, 255, 0.4); text-transform: uppercase;">AUTH: ${providedUser}</div>`,
-                style: { position: 'absolute', bottom: '50px', left: '20px', zIndex: '20', pointerEvents: 'none' }
+                html: `<div class="static-watermark">${providedUser}</div>`,
             }
         ],
+    });
+
+    art.on('fullscreen', (state) => {
+        if (state) {
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('landscape').catch((e) => {
+                    console.log('Orientation lock failed:', e);
+                });
+            }
+        } else {
+            if (screen.orientation && screen.orientation.unlock) {
+                screen.orientation.unlock();
+            }
+        }
     });
 }
 </script>
