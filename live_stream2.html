@@ -112,9 +112,26 @@ const firebaseConfig = {
   appId: "1:417377105074:web:bf27cd8dbbf0cc101005ab"
 };
 firebase.initializeApp(firebaseConfig);
-
-// Gamitin lamang ang Realtime Database
 const dbRealtime = firebase.database();
+
+/* =========================================================
+   ANGELTHUMP CONFIG (Server 1)
+   ---------------------------------------------------------
+   The actual HLS URL changes every time you go live, e.g.:
+   https://sgp1.angelthump.com/hls/<base64(createdAt+username)>_prdt/index.m3u8
+   (region prefix + a per-session id are baked into the path)
+
+   So it's derived fresh every poll from AngelThump's v2 API:
+   base64(createdAt + username) + "_" + username, served from
+   a region host matching the streamer's ingest server. If the
+   direct fetch gets CORS-blocked, it retries through a
+   read-only proxy (allorigins.win) automatically.
+========================================================= */
+const ANGELTHUMP_USERNAME = "prdt";
+const ANGELTHUMP_API_ENDPOINT = `https://api.angelthump.com/v2/streams/${ANGELTHUMP_USERNAME}`;
+const ANGELTHUMP_POLL_MS = 8000;
+let angelthumpHlsUrl = "";      // resolved fresh on every check
+let angelthumpSessionKey = null; // tracks createdAt so a restarted OBS session triggers a reconnect
 
 const urlParams = new URLSearchParams(window.location.search);
 let currentEventId = urlParams.get('v');
@@ -122,16 +139,21 @@ let providedUser = urlParams.get('u');
 
 let art = null;
 let currentServer = 1;
-let currentStreamUrl = "";
 let isListening = false;
 let isUserApproved = false;
-
 let viewerRef = null;
+
+// Server 2 (admin-controlled via Firebase) state
+let adminStreamUrl = "";
+
+// Server 1 (AngelThump auto-detect) state
+let angelthumpIsLive = false;
+let angelthumpPollTimer = null;
+let angelthumpUsedFallback = false;
 
 if (!currentEventId || !providedUser) {
     window.location.replace("live_event.html");
 } else {
-    // Pinalitan ng RTDB ang pag-check ng approved users
     dbRealtime.ref("approved_users/" + providedUser).once("value").then((doc) => {
         if (doc.exists()) {
             dbRealtime.ref(`event_access/${currentEventId}/${providedUser}`).on('value', (snap) => {
@@ -143,6 +165,7 @@ if (!currentEventId || !providedUser) {
                     
                     if(!isListening) {
                         startListeningToEvent(currentEventId);
+                        startAngelthumpMonitor();
                         viewerRef = dbRealtime.ref(`active_viewers/${currentEventId}/${providedUser}`);
                         viewerRef.set(true);
                         viewerRef.onDisconnect().remove(); 
@@ -154,6 +177,7 @@ if (!currentEventId || !providedUser) {
                     document.getElementById("player-container").innerHTML = ""; 
                     document.getElementById("main-content").style.display = "none";
                     if(viewerRef) { viewerRef.remove(); }
+                    if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); }
                     window.location.replace("live_event.html"); 
                 }
             });
@@ -167,32 +191,120 @@ if (!currentEventId || !providedUser) {
 
 window.addEventListener("beforeunload", function() {
     if(viewerRef) { viewerRef.remove(); }
+    if (angelthumpPollTimer) { clearInterval(angelthumpPollTimer); }
 });
 
+/* ---------------- SERVER 2: admin-controlled stream (Firebase) ---------------- */
 function startListeningToEvent(eventId) {
     dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
         const ev = snapshot.val();
         if(!ev) { 
             document.getElementById("main-title").innerText = "Transmission Terminated."; 
+            adminStreamUrl = "";
+            if (currentServer === 2 && isUserApproved) renderActivePlayer();
             return; 
         }
         
-        document.getElementById("main-title").innerText = ev.stream_title || ev.title;
-        currentStreamUrl = ev.stream_url || ev.url || "";
+        if (currentServer === 1) {
+            // keep title reflecting whichever server is active; only update title from Firebase when on server 2
+        } else {
+            document.getElementById("main-title").innerText = ev.stream_title || ev.title;
+        }
+        adminStreamUrl = ev.stream_url || ev.url || "";
         
-        if (currentServer === 1 && isUserApproved) { 
+        if (currentServer === 2 && isUserApproved) { 
             renderActivePlayer(); 
         }
     });
 }
 
+/* ---------------- SERVER 1: AngelThump auto-detect / auto-reconnect ---------------- */
+function startAngelthumpMonitor() {
+    checkAngelthumpLive();
+    angelthumpPollTimer = setInterval(checkAngelthumpLive, ANGELTHUMP_POLL_MS);
+}
+
+// Region prefix used in the RTMP ingest URL -> playback CDN hostname
+function angelthumpRegionHost(server) {
+    const map = { nyc: "nyc3", sfo: "sfo3", ams: "ams3", tor: "tor1", blr: "blr1", syd: "syd1", fra: "fra1", lon: "lon1", sgp: "sgp1" };
+    const prefix = (server || "").split("-")[0];
+    return map[prefix] || (prefix + "1");
+}
+
+// Rebuilds the exact HLS manifest path AngelThump serves for the current
+// live session: base64(createdAt + username) + "_" + username
+function angelthumpDeriveManifest(data) {
+    const user = data && data.user, ingest = data && data.ingest;
+    if (!user || !ingest || data.type !== "live") return null;
+    const segment = btoa(data.createdAt + user.username) + "_" + user.username;
+    const host = angelthumpRegionHost(ingest.server);
+    return {
+        url: `https://${host}.angelthump.com/hls/${segment}/index.m3u8`,
+        sessionKey: data.createdAt
+    };
+}
+
+function angelthumpFetchStream() {
+    return fetch(ANGELTHUMP_API_ENDPOINT, { cache: 'no-store' })
+        .then((r) => { if (!r.ok) throw 0; return r.json(); })
+        .catch(() => {
+            // Direct call likely CORS-blocked from this origin -- retry through a read-only proxy
+            return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(ANGELTHUMP_API_ENDPOINT), { cache: 'no-store' })
+                .then((r) => { if (!r.ok) throw 0; return r.json(); });
+        });
+}
+
+function checkAngelthumpLive() {
+    angelthumpFetchStream()
+        .then((data) => {
+            const manifest = angelthumpDeriveManifest(data);
+            if (manifest) {
+                const isNewSession = manifest.sessionKey !== angelthumpSessionKey;
+                angelthumpSessionKey = manifest.sessionKey;
+                angelthumpHlsUrl = manifest.url;
+                handleAngelthumpStatus(true, isNewSession);
+            } else {
+                angelthumpSessionKey = null;
+                handleAngelthumpStatus(false, false);
+            }
+        })
+        .catch(() => {
+            handleAngelthumpStatus(false, false);
+        });
+}
+
+function handleAngelthumpStatus(isLive, isNewSession) {
+    const wasLive = angelthumpIsLive;
+    angelthumpIsLive = isLive;
+
+    if (currentServer !== 1 || !isUserApproved) return;
+
+    if (isLive && (!wasLive || isNewSession || !art)) {
+        // Went live, OR a brand-new OBS session started (reconnect) -> (re)load the player
+        renderActivePlayer();
+    } else if (!isLive && wasLive) {
+        // Dropped offline -> fall back to standby
+        renderActivePlayer();
+    }
+}
+
+/* ---------------- SHARED RENDER / SWITCH LOGIC ---------------- */
 function switchServer(serverNum) {
     if (currentServer === serverNum || !isUserApproved) return;
     
     currentServer = serverNum;
     document.getElementById('btn-server-1').classList.toggle('active', serverNum === 1);
     document.getElementById('btn-server-2').classList.toggle('active', serverNum === 2);
+
+    if (serverNum === 1) {
+        document.getElementById("main-title").innerText = angelthumpIsLive
+            ? `${ANGELTHUMP_USERNAME} is live`
+            : "Awaiting Signal...";
+    }
     
+    // Renders instantly based on already-known live status for that server,
+    // so switching tabs never flashes a standby screen if that server is
+    // actually live right now.
     renderActivePlayer();
 }
 
@@ -200,35 +312,36 @@ function renderActivePlayer() {
     if (!isUserApproved) return; 
 
     const container = document.getElementById("player-container");
-
     if (art) { art.destroy(true); art = null; }
 
     if (currentServer === 1) {
-        if (currentStreamUrl.trim() === "") {
-            container.innerHTML = `
-                <div class="standby-screen">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <h2>Standby</h2>
-                    <p>The stream link has not been activated by the admin yet.</p>
-                </div>
-            `;
-        } else {
-            container.innerHTML = `<div class="artplayer-app"></div>`;
-            setupArtplayer(currentStreamUrl);
+        if (!angelthumpIsLive) {
+            showStandby(container, "Standby", `@${ANGELTHUMP_USERNAME} is currently offline on AngelThump.`);
+            return;
         }
+        container.innerHTML = `<div class="artplayer-app"></div>`;
+        setupArtplayer(angelthumpHlsUrl);
 
     } else if (currentServer === 2) {
-        container.innerHTML = `
-            <iframe 
-                src="https://player.angelthump.com/?channel=tenthreedee" 
-                style="width: 100%; height: 100%; border: none; display: block;" 
-                allow="fullscreen"
-                allowfullscreen="true">
-            </iframe>
-        `;
+        if (adminStreamUrl.trim() === "") {
+            showStandby(container, "Standby", "The stream link has not been activated by the admin yet.");
+            return;
+        }
+        container.innerHTML = `<div class="artplayer-app"></div>`;
+        setupArtplayer(adminStreamUrl);
     }
+}
+
+function showStandby(container, title, message) {
+    container.innerHTML = `
+        <div class="standby-screen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h2>${title}</h2>
+            <p>${message}</p>
+        </div>
+    `;
 }
 
 function setupArtplayer(streamUrl) {
@@ -244,7 +357,11 @@ function setupArtplayer(streamUrl) {
             m3u8: function (video, url, art) {
                 if (Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
-                    const hls = new Hls(); hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
+                    const hls = new Hls();
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    art.hls = hls;
+
                     hls.on(Hls.Events.MANIFEST_PARSED, function () {
                         let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
                         levels.unshift({ default: true, html: 'Auto', index: -1 });
@@ -252,6 +369,20 @@ function setupArtplayer(streamUrl) {
                             name: 'quality', index: 10, position: 'right', html: 'Quality',
                             selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
                         });
+                    });
+
+                    // If the source dies mid-playback (streamer went offline / dropped),
+                    // fall back to standby and let the relevant monitor pick the reconnect back up.
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            if (currentServer === 1) {
+                                angelthumpIsLive = false;
+                                if (currentServer === 1) renderActivePlayer();
+                            } else if (currentServer === 2) {
+                                adminStreamUrl = "";
+                                if (currentServer === 2) renderActivePlayer();
+                            }
+                        }
                     });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
             }
