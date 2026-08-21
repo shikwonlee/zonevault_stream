@@ -373,7 +373,7 @@ function setAngelThumpLive(isLive, liveTitle) {
     if (!isLive) {
         atSessionKey = null;
         if (currentServer === 1) {
-            showStandby("AngelThump stream is offline.", "Auto-checking every " + (AT_POLL_MS/1000) + "s — this page will connect automatically once it goes live.");
+            showStandby("Server 1 is offline.", "Auto-checking every " + (AT_POLL_MS/1000) + "s — this page will connect automatically once it goes live.");
         }
     } else if (changed && liveTitle) {
         document.getElementById("main-title").innerText = liveTitle;
@@ -573,7 +573,7 @@ function selectServer(serverNum) {
     if (serverNum === 1) {
         if (!currentEventData.angelthump_channel) return;
         atSessionKey = null;
-        showStandby("Connecting to AngelThump…", "Checking channel \"" + currentEventData.angelthump_channel + "\"");
+        showStandby("Connecting to Server 1…", "Please wait while we check the stream.");
         startAngelThumpPolling();
     } else if (serverNum === 2) {
         if (!currentEventData.stream_url) return;
@@ -659,10 +659,10 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                             hls.recoverMediaError();
                         } else {
-                            // Unrecoverable — for Server 1 the AngelThump poller will re-attach
+                            // Unrecoverable — for Server 1 the background poller will re-attach
                             // automatically as soon as a new session/manifest is detected.
                             if (currentServer === 1) {
-                                showStandby("Reconnecting to AngelThump…", "Waiting for the stream to come back.");
+                                showStandby("Reconnecting…", "Waiting for the stream to come back.");
                             }
                         }
                     });
