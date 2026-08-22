@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Live | Zone Vault</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+<link rel="icon" href="favicon-new.png" type="image/png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/shaka-player@4.12.1/dist/shaka-player.compiled.js"></script>
+
+<style>
+    :root {
+        --bg-color: #09090b;
+        --card-bg: #18181b;
+        --border-color: #27272a;
+        --hover-bg: #27272a;
+        --shadow-subtle: 0 4px 12px rgba(0, 0, 0, 0.4);
+        --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.6);
+
+        --text-main: #ffffff;
+        --text-muted: #a1a1aa;
+        --admin-color: #ef4444;
+        --input-bg: #27272a;
+        --status-online: #22c55e;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+
+    body {
+        background-color: var(--bg-color); color: var(--text-main);
+        font-family: 'Outfit', sans-serif;
+        min-height: 100vh;
+        display: flex; flex-direction: column;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        -webkit-user-drag: none;
+    }
+
+    .player-layout {
+        width: 100%; max-width: 1200px; margin: 0 auto; padding: 30px 20px;
+        animation: fadeIn 0.4s ease forwards; opacity: 0; transform: translateY(10px);
+    }
+    @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+
+    .back-btn {
+        display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px;
+        text-decoration: none; color: var(--text-muted); font-size: 14px; font-weight: 600;
+        transition: color 0.2s ease;
+    }
+    .back-btn:hover { color: var(--text-main); }
+
+    #player-container {
+        width: 100%; aspect-ratio: 16/9; background: #000;
+        border-radius: 16px; overflow: hidden;
+        border: 1px solid var(--border-color); box-shadow: var(--shadow-float);
+        position: relative;
+    }
+    .artplayer-app { width: 100%; height: 100%; }
+
+    .meta-container {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        margin-top: 25px; gap: 20px; flex-wrap: wrap;
+    }
+    .title-group { flex: 1; min-width: 250px; }
+    .video-title { margin-bottom: 10px; font-size: 24px; font-weight: 700; line-height: 1.3; color: var(--text-main); }
+
+    .user-badge {
+        background: var(--input-bg); padding: 8px 14px; border-radius: 8px;
+        font-size: 12px; font-weight: 600; border: 1px solid var(--border-color);
+        display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted);
+    }
+    .user-badge i { color: var(--status-online); }
+
+    /* =========================================
+       SERVER SELECTOR
+       ========================================= */
+    .server-selector {
+        display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; align-items: center;
+    }
+    .server-btn {
+        padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border-color);
+        background: var(--card-bg); color: var(--text-muted); font-family: inherit;
+        font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.2s ease;
+        display: inline-flex; align-items: center; gap: 8px;
+    }
+    .server-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+    .server-btn.active {
+        background: var(--text-main); color: var(--bg-color); border-color: var(--text-main);
+    }
+    .server-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: #52525b; transition: 0.2s; }
+    .server-btn .dot.live { background: #22c55e; box-shadow: 0 0 6px 1px #22c55e; }
+    .server-btn .dot.off { background: #ef4444; }
+    .server-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* =========================================
+       STRICT WATERMARK SYSTEM
+       ========================================= */
+    @keyframes pulse {
+        0% { transform: scale(0.95); opacity: 0.5; }
+        50% { transform: scale(1.1); opacity: 1; }
+        100% { transform: scale(0.95); opacity: 0.5; }
+    }
+
+    .static-watermark {
+        position: absolute !important;
+        top: auto !important;
+        right: auto !important;
+        font-family: monospace;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.65);
+        text-transform: none;
+        text-shadow: 1px 1px 4px rgba(0,0,0,0.9);
+        z-index: 20;
+        pointer-events: none;
+    }
+
+    @media (min-width: 769px) {
+        .static-watermark {
+            bottom: 70px !important;
+            left: 40px !important;
+            font-size: 16px !important;
+        }
+    }
+
+    @media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
+        .static-watermark {
+            bottom: 20px !important;
+            left: 12% !important;
+            font-size: 13px !important;
+        }
+    }
+
+    .standby-screen {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: var(--bg-color); color: var(--text-muted); text-align: center; padding: 20px;
+    }
+    .standby-screen h2 { color: var(--text-main); font-size: 20px; margin-bottom: 8px; font-weight: 600;}
+    .standby-screen p { font-size: 14px; }
+    .standby-screen .retry-note { margin-top: 14px; font-size: 12px; color: #52525b; font-family: monospace; }
+
+    #security-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: var(--bg-color); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+    }
+    #security-overlay p { font-size: 16px; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 10px; }
+
+    #guidelines-modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.8); z-index: 10000; display: none;
+        align-items: center; justify-content: center; padding: 20px;
+        animation: fadeInOverlay 0.3s ease;
+    }
+    @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal-content {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 16px; padding: 35px 30px; max-width: 450px; width: 100%;
+        box-shadow: var(--shadow-float); text-align: left;
+        transform: translateY(10px); animation: slideUp 0.3s ease forwards;
+    }
+    @keyframes slideUp { to { transform: translateY(0); } }
+
+    .modal-content h2 { margin-top: 0; margin-bottom: 20px; font-size: 18px; color: var(--text-main); font-weight: 800; text-align: center; letter-spacing: 0.5px;}
+    .modal-content ul { padding-left: 20px; color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    .modal-content ul li { margin-bottom: 12px; }
+    .modal-content p.thank-you { text-align: center; font-weight: 600; color: var(--text-main); margin-bottom: 24px;}
+
+    .btn-close-modal {
+        width: 100%; padding: 14px; background: var(--text-main); color: var(--bg-color);
+        border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s ease; font-size: 14px; font-family: inherit;
+    }
+    .btn-close-modal:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: var(--shadow-subtle); }
+
+    .art-subtitle {
+        font-size: 25px !important;
+        z-index: 25 !important;
+        -webkit-text-stroke: 1.5px rgba(0,0,0,0.95) !important;
+        text-stroke: 1.5px rgba(0,0,0,0.95) !important;
+        paint-order: stroke fill !important;
+        text-shadow:
+            0 3px 6px rgba(0,0,0,0.9),
+            0 4px 14px rgba(0,0,0,0.7) !important;
+    }
+
+    @media (max-width: 768px) {
+        .player-layout { padding: 20px 15px; }
+        .video-title { font-size: 20px; }
+        .meta-container { flex-direction: column; gap: 15px; }
+        .art-subtitle {
+            font-size: 14px !important;
+            -webkit-text-stroke: 1px rgba(0,0,0,0.95) !important;
+            text-stroke: 1px rgba(0,0,0,0.95) !important;
+            paint-order: stroke fill !important;
+            text-shadow:
+                0 2px 5px rgba(0,0,0,0.9),
+                0 3px 10px rgba(0,0,0,0.7) !important;
+        }
+    }
+
+    .dash-player-shell { width: 100%; height: 100%; position: relative; background: #000; }
+    .dash-player-shell video { width: 100%; height: 100%; display: block; background: #000; }
+    .dash-subtitle-select {
+        position: absolute; right: 14px; bottom: 14px; z-index: 30;
+        min-width: 145px; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 7px; background: rgba(9,9,11,0.84); color: #fff;
+        font-family: 'Outfit', sans-serif; font-size: 12px; backdrop-filter: blur(8px);
+    }
+</style>
+
+<script>
+    if (window.top !== window.self) {
+        window.top.location = window.self.location;
+    }
+
+    document.addEventListener('contextmenu', event => event.preventDefault());
+    document.onkeydown = function(e) {
+        if(e.keyCode == 123) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) { return false; }
+    };
+</script>
+
+</head>
+<body>
+
+<div id="security-overlay">
+    <p><i class="fas fa-circle-notch fa-spin" style="color: var(--text-main);"></i> Verifying access...</p>
+</div>
+
+<div id="guidelines-modal">
+    <div class="modal-content">
+        <h2><i class="fas fa-shield-alt" style="color: var(--admin-color); margin-right: 8px;"></i> VIEWING GUIDELINES</h2>
+        <ul>
+            <li>Avoid sharing any links publicly, especially the one you are currently using to watch.</li>
+            <li>Do not take screenshots or screen recordings while the access code is visible on screen.</li>
+            <li>Please refrain from posting screenshots or recordings while the video is being watched.</li>
+            <li>You may share or post your screenshots or screen recordings only after you're done watching.</li>
+        </ul>
+        <p class="thank-you">Thank you for cooperating!</p>
+        <button class="btn-close-modal" onclick="closeGuidelinesModal()">I Understand</button>
+    </div>
+</div>
+
+<div class="player-layout" id="main-content" style="display: none;">
+  <a href="live_event" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Videos</a>
+
+  <div id="player-container">
+     <div class="artplayer-app"></div>
+  </div>
+
+  <div class="server-selector" id="server-selector"></div>
+
+  <div class="meta-container">
+      <div class="title-group">
+          <div class="video-title" id="main-title">Loading...</div>
+          <div class="user-badge" id="username-badge">
+              <i class="fas fa-user-check"></i> @username
+          </div>
+      </div>
+  </div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAeaQVRzcL9qvGRKpqGyPKolTMltieN3zU",
+  authDomain: "notif-bfe68.firebaseapp.com",
+  databaseURL: "https://notif-bfe68-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "notif-bfe68",
+  storageBucket: "notif-bfe68.firebasestorage.app",
+  messagingSenderId: "417377105074",
+  appId: "1:417377105074:web:bf27cd8dbbf0cc101005ab"
+};
+firebase.initializeApp(firebaseConfig);
+
+const dbRealtime = firebase.database();
+
+let art = null;
+let dashPlayer = null;
+let dashVideo = null;
+let isListening = false;
+let isUserApproved = false;
+
+/* ========================================================================
+   DASH / CLEARKEY CONFIGURATION — EDIT THIS BLOCK ONLY
+
+   1. Paste your authorized .mpd URL in mpdUrl.
+   2. Paste the matching ClearKey KID and key in clearKey.
+   3. Leave subtitleFiles blank to auto-detect every text track declared by the MPD.
+      Optional sidecar URLs may be .vtt, .srt, .ttml, or .xml and must allow CORS.
+   ======================================================================== */
+const DASH_PLAYER_CONFIG = {
+    mpdUrl: "", // PASTE YOUR AUTHORIZED .MPD URL HERE
+    clearKey: {
+        keyId: "", // PASTE THE 32-CHARACTER CLEARKEY KID HERE
+        key: "",   // PASTE THE 32-CHARACTER CLEARKEY VALUE HERE
+    },
+    subtitleFiles: {
+        en: "",  // OPTIONAL ENGLISH .VTT URL
+        fil: "", // OPTIONAL FILIPINO/TAGALOG .VTT URL
+    },
+    defaultSubtitleLanguage: "fil", // Uses Filipino when available; otherwise English.
+};
+
+function destroyDashPlayer() {
+    if (dashPlayer) {
+        dashPlayer.destroy().catch(() => {});
+        dashPlayer = null;
+    }
+    dashVideo = null;
+}
+
+/* ============================================================
+   SERVER 1 = AngelThump (auto-detect / auto-start / auto-reconnect)
+   SERVER 2 = Admin-injected m3u8 (from Firebase live_events/{id}.stream_url)
+   ============================================================ */
+
+// currentServer: 1 = AngelThump, 2 = Admin link
+let currentServer = null;
+let currentEventData = { angelthump_channel: "", stream_url: "", stream_subtitle: "" };
+
+// ---- AngelThump polling state (ported from Signal Desk) ----
+const AT_POLL_MS = 5000;
+let atPollTimer = null;
+let atSessionKey = null;
+let atIsLive = false;
+
+function regionHost(server) {
+    const map = { nyc:'nyc3', sfo:'sfo3', ams:'ams3', tor:'tor1', blr:'blr1', syd:'syd1', fra:'fra1', lon:'lon1', sgp:'sgp1' };
+    const prefix = (server || '').split('-')[0];
+    return map[prefix] || (prefix + '1');
+}
+
+function deriveManifest(data) {
+    const user = data && data.user, ingest = data && data.ingest;
+    if (!user || !ingest || data.type !== 'live') return null;
+    const segment = btoa(data.createdAt + user.username) + '_' + user.username;
+    const host = regionHost(ingest.server);
+    return { url: 'https://' + host + '.angelthump.com/hls/' + segment + '/index.m3u8', sessionKey: data.createdAt };
+}
+
+async function fetchAngelThumpStream(channel) {
+    const endpoint = 'https://api.angelthump.com/v2/streams/' + encodeURIComponent(channel);
+    try {
+        const res = await fetch(endpoint, { cache: 'no-store' });
+        if (res.status === 404) return { offline: true };
+        if (!res.ok) throw new Error('status ' + res.status);
+        return await res.json();
+    } catch (err) {
+        try {
+            const res2 = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(endpoint), { cache: 'no-store' });
+            if (res2.status === 404) return { offline: true };
+            if (!res2.ok) throw new Error('proxy status ' + res2.status);
+            return await res2.json();
+        } catch (err2) {
+            throw err2;
+        }
+    }
+}
+
+async function pollAngelThump() {
+    const channel = currentEventData.angelthump_channel;
+    if (!channel) return;
+
+    let data;
+    try {
+        data = await fetchAngelThumpStream(channel);
+    } catch (e) {
+        // network hiccup, keep polling — don't flip live state on a transient failure
+        return;
+    }
+
+    if (!data || data.offline) {
+        setAngelThumpLive(false);
+        return;
+    }
+
+    const manifest = deriveManifest(data);
+    if (!manifest) {
+        setAngelThumpLive(false);
+        return;
+    }
+
+    setAngelThumpLive(true, data.title || data.stream_title || null);
+
+    if (manifest.sessionKey !== atSessionKey) {
+        // new broadcast session -> (re)attach, this is what makes it "auto reconnect"
+        atSessionKey = manifest.sessionKey;
+        if (currentServer === 1) {
+            attachStream(manifest.url, null);
+        }
+    }
+}
+
+function setAngelThumpLive(isLive, liveTitle) {
+    const changed = atIsLive !== isLive;
+    atIsLive = isLive;
+    updateServerButtons();
+
+    if (!isLive) {
+        atSessionKey = null;
+        if (currentServer === 1) {
+            showStandby("Server 1 is offline.", "Auto-checking every " + (AT_POLL_MS/1000) + "s — this page will connect automatically once it goes live.");
+        }
+    } else if (changed && liveTitle) {
+        document.getElementById("main-title").innerText = liveTitle;
+    }
+}
+
+function startAngelThumpPolling() {
+    if (atPollTimer) clearInterval(atPollTimer);
+    if (!currentEventData.angelthump_channel) return;
+    pollAngelThump(); // immediate check so it auto-starts without waiting for the first interval
+    atPollTimer = setInterval(pollAngelThump, AT_POLL_MS);
+}
+
+function stopAngelThumpPolling() {
+    if (atPollTimer) { clearInterval(atPollTimer); atPollTimer = null; }
+}
+
+// ==================================================================================
+
+let viewerRef = null;
+let isBooted = false;
+const mySessionId = Date.now().toString() + Math.random().toString(36).substring(2);
+
+function checkGuidelinesModal() {
+    const today = new Date().toDateString();
+    const lastSeen = localStorage.getItem('zone_vault_guidelines_date');
+
+    if (lastSeen !== today) {
+        document.getElementById('guidelines-modal').style.display = 'flex';
+    }
+}
+
+function closeGuidelinesModal() {
+    const today = new Date().toDateString();
+    localStorage.setItem('zone_vault_guidelines_date', today);
+    document.getElementById('guidelines-modal').style.display = 'none';
+
+    if(art) {
+        art.play().catch(() => {});
+    } else if (dashVideo) {
+        dashVideo.play().catch(() => {});
+    }
+}
+
+/* =========================================
+   STRICT SECURITY & SESSION VALIDATION
+   ========================================= */
+const urlParams = new URLSearchParams(window.location.search);
+let currentEventId = urlParams.get('v');
+let providedUser = urlParams.get('u');
+
+let activeSessionUser = localStorage.getItem("zone_vault_user");
+
+if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== activeSessionUser) {
+    document.body.innerHTML = `
+        <div style="display:flex; height:100vh; align-items:center; justify-content:center; background:#09090b; color:#ef4444; font-family:sans-serif; flex-direction:column;">
+            <i class="fas fa-ban" style="font-size: 50px; margin-bottom: 15px;"></i>
+            <h2>UNAUTHORIZED ACCESS</h2>
+            <p style="color:#a1a1aa; margin-top:10px;">You are not logged in or your session is invalid.</p>
+        </div>
+    `;
+    setTimeout(() => {
+        window.location.replace("index");
+    }, 2000);
+} else {
+    dbRealtime.ref("approved_users/" + providedUser).once("value").then((doc) => {
+        if (doc.exists()) {
+
+            dbRealtime.ref(`event_access/${currentEventId}/${providedUser}`).on('value', (snap) => {
+                if (snap.val() === true) {
+                    isUserApproved = true;
+                    document.getElementById("security-overlay").style.display = "none";
+                    document.getElementById("main-content").style.display = "block";
+                    document.getElementById("username-badge").innerHTML = `<i class="fas fa-user-check"></i> ${providedUser}`;
+
+                    checkGuidelinesModal();
+
+                    if(!isListening) {
+                        startListeningToEvent(currentEventId);
+
+                        viewerRef = dbRealtime.ref(`active_viewers/${currentEventId}/${providedUser}`);
+                        viewerRef.set(mySessionId);
+                        viewerRef.onDisconnect().remove();
+
+                        viewerRef.on('value', (sessionSnap) => {
+                            const activeSession = sessionSnap.val();
+                            if (activeSession && activeSession !== mySessionId) {
+                                isBooted = true;
+                                viewerRef.onDisconnect().cancel();
+
+                                if (art) { art.destroy(true); art = null; }
+                                stopAngelThumpPolling();
+                                alert("Security Alert: Your account was accessed from another device. This session will be terminated.");
+                                window.location.replace("index");
+                            }
+                        });
+
+                        isListening = true;
+                    }
+                } else {
+                    triggerLockout("You do not have access to this specific video.");
+                }
+            });
+        } else {
+            triggerLockout("Your account has not been approved by the admin.");
+        }
+    }).catch(() => {
+        triggerLockout("Database connection error. Please try again.");
+    });
+}
+
+function triggerLockout(message) {
+    isUserApproved = false;
+    if (art) { art.destroy(true); art = null; }
+    stopAngelThumpPolling();
+
+    document.getElementById("player-container").innerHTML = "";
+    document.getElementById("main-content").style.display = "none";
+    document.getElementById("security-overlay").innerHTML = `
+        <div style="text-align:center;">
+            <i class="fas fa-lock" style="font-size: 40px; color: #ef4444; margin-bottom: 15px;"></i>
+            <h3 style="color:#ef4444; margin-bottom: 10px;">Access Denied</h3>
+            <p style="color:#a1a1aa;">${message}</p>
+        </div>
+    `;
+
+    if(viewerRef && !isBooted) { viewerRef.remove(); }
+
+    setTimeout(() => {
+        localStorage.removeItem("zone_vault_user");
+        window.location.replace("index.html");
+    }, 3000);
+}
+
+window.addEventListener("beforeunload", function() {
+    if(viewerRef && !isBooted) { viewerRef.remove(); }
+});
+
+function startListeningToEvent(eventId) {
+    // Pulls title + both server sources (AngelThump channel + admin m3u8 link) live from Firebase.
+    dbRealtime.ref('live_events/' + eventId).on('value', (snapshot) => {
+        const ev = snapshot.val() || {};
+        document.getElementById("main-title").innerText = ev.stream_title || ev.title || "Live Stream";
+
+        currentEventData.angelthump_channel = (ev.angelthump_channel || "").trim();
+        const configuredDashUrl = getConfiguredDashUrl();
+        currentEventData.stream_url = configuredDashUrl || ev.stream_url || ev.url || "";
+        currentEventData.stream_subtitle = configuredDashUrl ? "" : (ev.stream_subtitle || "");
+
+        renderServerButtons();
+
+        if (currentServer === null) {
+            // Auto-pick a default server: prefer AngelThump if configured, else the admin link.
+            if (currentEventData.angelthump_channel) {
+                selectServer(1);
+            } else if (currentEventData.stream_url) {
+                selectServer(2);
+            } else {
+                showStandby("No video sources configured yet.", "Check back once the admin sets up the stream.");
+            }
+        } else if (currentServer === 1 && currentEventData.angelthump_channel) {
+            startAngelThumpPolling();
+        } else if (currentServer === 2 && currentEventData.stream_url) {
+            attachStream(currentEventData.stream_url, currentEventData.stream_subtitle);
+        }
+    });
+}
+
+function renderServerButtons() {
+    const wrap = document.getElementById("server-selector");
+    if (!wrap) return;
+
+    const hasAT = !!currentEventData.angelthump_channel;
+    const hasAdmin = !!currentEventData.stream_url;
+
+    if (!hasAT && !hasAdmin) { wrap.style.display = "none"; return; }
+    wrap.style.display = "flex";
+
+    wrap.innerHTML = `
+        <button class="server-btn ${currentServer === 1 ? 'active' : ''} ${!hasAT ? 'disabled' : ''}" onclick="${hasAT ? 'selectServer(1)' : ''}">
+            <span class="dot ${hasAT ? (atIsLive ? 'live' : 'off') : ''}"></span> Server 1
+        </button>
+        <button class="server-btn ${currentServer === 2 ? 'active' : ''} ${!hasAdmin ? 'disabled' : ''}" onclick="${hasAdmin ? 'selectServer(2)' : ''}">
+            <span class="dot ${hasAdmin ? 'live' : ''}"></span> Server 2
+        </button>
+    `;
+}
+
+function updateServerButtons() {
+    // lightweight refresh of just the live/offline dot on Server 1 without re-rendering everything
+    renderServerButtons();
+}
+
+function selectServer(serverNum) {
+    if (!isUserApproved) return;
+    currentServer = serverNum;
+    stopAngelThumpPolling();
+    renderServerButtons();
+
+    if (serverNum === 1) {
+        if (!currentEventData.angelthump_channel) return;
+        atSessionKey = null;
+        showStandby("Connecting to Server 1…", "Please wait while we check the stream.");
+        startAngelThumpPolling();
+    } else if (serverNum === 2) {
+        if (!currentEventData.stream_url) return;
+        attachStream(currentEventData.stream_url, currentEventData.stream_subtitle);
+    }
+}
+
+function showStandby(title, sub) {
+    if (!isUserApproved) return;
+    if (art) { art.destroy(true); art = null; }
+    const container = document.getElementById("player-container");
+    container.innerHTML = `
+        <div class="standby-screen">
+            <i class="fas fa-film" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
+            <h2>${title}</h2>
+            <p>${sub || ''}</p>
+        </div>
+    `;
+}
+
+function attachStream(videoUrl, subtitleUrl) {
+    if (!isUserApproved) return;
+
+    const container = document.getElementById("player-container");
+
+    if (art) {
+        art.destroy(true);
+        art = null;
+    }
+    destroyDashPlayer();
+
+    if (!videoUrl || videoUrl.trim() === "") {
+        showStandby("No Video", "This source hasn't been set up yet.");
+        return;
+    }
+
+    if (isDashSource(videoUrl)) {
+        container.innerHTML = `<div class="dash-player-shell"><video id="dash-video" controls playsinline></video><select id="dash-subtitle-select" class="dash-subtitle-select" aria-label="Subtitle language"><option>Loading subtitles…</option></select></div>`;
+        setupDashPlayer(videoUrl);
+        return;
+    }
+
+    container.innerHTML = `<div class="artplayer-app"></div>`;
+    setupArtplayer(videoUrl, subtitleUrl);
+}
+
+function getConfiguredDashUrl() {
+    return (DASH_PLAYER_CONFIG.mpdUrl || "").trim();
+}
+
+function isDashSource(url) {
+    return /\.mpd(?:$|[?#])/i.test((url || "").trim());
+}
+
+function normalizeSubtitleLanguage(language) {
+    const value = (language || "").toLowerCase();
+    if (["fil", "tl", "tgl", "filipino", "tagalog"].includes(value)) return "fil";
+    if (["en", "eng", "english"].includes(value)) return "en";
+    return value;
+}
+
+function subtitleLabel(track) {
+    const language = normalizeSubtitleLanguage(track.language);
+    const languageLabel = language === "fil" ? "Filipino" : language === "en" ? "English" : (track.label || track.language || "Subtitle");
+    return `${languageLabel} · ${subtitleFormatLabel(track)}`;
+}
+
+function subtitleFormatLabel(track) {
+    const format = (track.mimeType || track.codecs || "").toLowerCase();
+    if (format.includes("subrip") || format.includes("srt")) return "SRT";
+    if (format.includes("ttml") || format.includes("xml")) return "TTML/XML";
+    if (format.includes("vtt")) return "WebVTT";
+    return format ? format.toUpperCase() : "MPD text";
+}
+
+async function addConfiguredSubtitleFiles(player) {
+    const files = DASH_PLAYER_CONFIG.subtitleFiles || {};
+    const requests = Object.entries(files)
+        .filter(([, url]) => (url || "").trim())
+        .map(([language, url]) => {
+            const subtitleUrl = url.trim();
+            return player.addTextTrackAsync(subtitleUrl, normalizeSubtitleLanguage(language), "subtitle", inferSidecarSubtitleMime(subtitleUrl), null, language === "fil" ? "Filipino" : "English");
+        });
+    await Promise.all(requests);
+}
+
+function inferSidecarSubtitleMime(url) {
+    const path = (url || "").split(/[?#]/)[0].toLowerCase();
+    if (path.endsWith(".srt")) return "application/x-subrip";
+    if (path.endsWith(".ttml") || path.endsWith(".xml")) return "application/ttml+xml";
+    return "text/vtt";
+}
+
+function configureDashSubtitleSelector(player) {
+    const selector = document.getElementById("dash-subtitle-select");
+    if (!selector) return;
+
+    const detectedTracks = player.getTextTracks();
+    selector.innerHTML = `<option value="off">Subtitles: Off</option>`;
+
+    if (!detectedTracks.length) {
+        selector.innerHTML = `<option value="off">No subtitle tracks declared in MPD</option>`;
+        selector.disabled = true;
+        return;
+    }
+
+    selector.disabled = false;
+    const preferredLanguage = normalizeSubtitleLanguage(DASH_PLAYER_CONFIG.defaultSubtitleLanguage) || "fil";
+    detectedTracks.forEach((track, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `Subtitles: ${subtitleLabel(track)}`;
+        selector.appendChild(option);
+    });
+
+    const defaultIndex = detectedTracks.findIndex((track) => normalizeSubtitleLanguage(track.language) === preferredLanguage);
+    const englishIndex = detectedTracks.findIndex((track) => normalizeSubtitleLanguage(track.language) === "en");
+    const selectedIndex = defaultIndex >= 0 ? defaultIndex : (englishIndex >= 0 ? englishIndex : 0);
+    selector.value = String(selectedIndex);
+    player.selectTextTrack(detectedTracks[selectedIndex]);
+    player.setTextTrackVisibility(true);
+
+    selector.addEventListener("change", () => {
+        if (selector.value === "off") {
+            player.setTextTrackVisibility(false);
+            return;
+        }
+        const track = detectedTracks[Number(selector.value)];
+        if (track) {
+            player.selectTextTrack(track);
+            player.setTextTrackVisibility(true);
+        }
+    });
+}
+
+async function setupDashPlayer(streamUrl) {
+    const video = document.getElementById("dash-video");
+    if (!video || !window.shaka) {
+        showStandby("DASH player unavailable", "Shaka Player could not be loaded.");
+        return;
+    }
+
+    shaka.polyfill.installAll();
+    if (!shaka.Player.isBrowserSupported()) {
+        showStandby("Browser not supported", "This browser does not support protected MPEG-DASH playback.");
+        return;
+    }
+
+    const player = new shaka.Player(video);
+    dashPlayer = player;
+    dashVideo = video;
+
+    player.addEventListener("error", (event) => {
+        console.error("DASH playback error", event.detail || event);
+        showStandby("DASH stream error", "Check the MPD URL, ClearKey values, subtitle URLs, and source-server availability.");
+    });
+
+    const clearKeys = {};
+    const keyId = (DASH_PLAYER_CONFIG.clearKey.keyId || "").trim();
+    const key = (DASH_PLAYER_CONFIG.clearKey.key || "").trim();
+    if (keyId && key) clearKeys[keyId] = key;
+
+    player.configure({
+        drm: { clearKeys },
+        streaming: { bufferingGoal: 12, rebufferingGoal: 3 },
+    });
+
+    try {
+        await player.load(streamUrl);
+        await addConfiguredSubtitleFiles(player);
+        configureDashSubtitleSelector(player);
+        video.muted = true;
+        await video.play().catch(() => {});
+    } catch (error) {
+        console.error("Unable to load DASH stream", error);
+        showStandby("Unable to start DASH stream", "Verify the authorized MPD URL and ClearKey configuration block.");
+    }
+}
+
+function setupArtplayer(streamUrl, subtitleUrl) {
+    art = new Artplayer({
+        container: '.artplayer-app',
+        url: streamUrl,
+        type: 'm3u8',
+        autoplay: true,
+
+        fullscreen: true,
+        fullscreenWeb: false,
+        volume: 0.8,
+        setting: true,
+        pip: false,
+        playbackRate: true,
+        aspectRatio: false,
+        miniProgressBar: true,
+
+        isLive: true,
+        theme: '#ffffff',
+
+        subtitle: subtitleUrl ? {
+            url: subtitleUrl,
+            type: 'vtt',
+            style: {
+                fontSize: '25px',
+                WebkitTextStroke: '1.5px rgba(0,0,0,0.95)',
+                paintOrder: 'stroke fill',
+                textShadow: '0 3px 6px rgba(0,0,0,0.9), 0 4px 14px rgba(0,0,0,0.7)',
+            },
+            encoding: 'utf-8',
+        } : {},
+
+        customType: {
+            m3u8: function (video, url, art) {
+                if (Hls.isSupported()) {
+                    if (art.hls) art.hls.destroy();
+                    const hls = new Hls();
+                    hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
+
+                    // Auto-reconnect on recoverable network/media errors, regardless of server.
+                    hls.on(Hls.Events.ERROR, function (evt, data) {
+                        if (!data.fatal) return;
+                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                            hls.startLoad();
+                        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                            hls.recoverMediaError();
+                        } else {
+                            // Unrecoverable — for Server 1 the background poller will re-attach
+                            // automatically as soon as a new session/manifest is detected.
+                            if (currentServer === 1) {
+                                showStandby("Reconnecting…", "Waiting for the stream to come back.");
+                            }
+                        }
+                    });
+
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
+                        levels.unshift({ default: true, html: 'Auto', index: -1 });
+                        art.controls.update({
+                            name: 'quality', index: 20, position: 'right', html: 'Quality',
+                            selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
+                        });
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
+            }
+        },
+        layers: [
+            {
+                name: 'username-watermark',
+                html: `<div class="static-watermark">${providedUser}</div>`,
+            }
+        ],
+    });
+
+    art.on('fullscreen', (state) => {
+        if (state) {
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('landscape').catch((e) => {
+                    console.log('Orientation lock failed:', e);
+                });
+            }
+        } else {
+            if (screen.orientation && screen.orientation.unlock) {
+                screen.orientation.unlock();
+            }
+        }
+    });
+}
+</script>
+</body>
+</html>
