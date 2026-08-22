@@ -797,6 +797,43 @@ async function setupDashPlayer(streamUrl) {
     }
 }
 
+function hlsSubtitleLabel(track) {
+    const language = normalizeSubtitleLanguage(track.lang || track.language);
+    if (language === "fil") return "Filipino";
+    if (language === "en") return "English";
+    return track.name || track.label || track.lang || track.language || "Subtitle";
+}
+
+function configureHlsSubtitleControl(hls, art) {
+    const tracks = hls.subtitleTracks || [];
+    if (!tracks.length) return;
+
+    const preferredLanguage = normalizeSubtitleLanguage(DASH_PLAYER_CONFIG.defaultSubtitleLanguage) || "fil";
+    const preferredIndex = tracks.findIndex((track) => normalizeSubtitleLanguage(track.lang || track.language) === preferredLanguage);
+    const englishIndex = tracks.findIndex((track) => normalizeSubtitleLanguage(track.lang || track.language) === "en");
+    const selectedIndex = preferredIndex >= 0 ? preferredIndex : (englishIndex >= 0 ? englishIndex : 0);
+
+    const selector = [
+        { default: false, html: "Off", index: -1 },
+        ...tracks.map((track, index) => ({ default: index === selectedIndex, html: hlsSubtitleLabel(track), index })),
+    ];
+
+    hls.subtitleDisplay = true;
+    hls.subtitleTrack = selectedIndex;
+    art.controls.update({
+        name: "subtitles",
+        index: 21,
+        position: "right",
+        html: "Subtitles",
+        selector,
+        onSelect: function (item) {
+            hls.subtitleTrack = item.index;
+            hls.subtitleDisplay = item.index !== -1;
+            return item.html;
+        }
+    });
+}
+
 function setupArtplayer(streamUrl, subtitleUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
@@ -858,6 +895,7 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                             name: 'quality', index: 20, position: 'right', html: 'Quality',
                             selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
                         });
+                        configureHlsSubtitleControl(hls, art);
                     });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
             }
