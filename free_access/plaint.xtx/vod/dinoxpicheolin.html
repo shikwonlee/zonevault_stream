@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VOD | Zone Vault</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+<link rel="icon" href="favicon-new.png" type="image/png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<!-- Video Player Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
+
+<style>
+    /* =========================================
+       1. VARIABLES & THEME ENGINE
+       ========================================= */
+    :root {
+        --bg-color: #09090b;
+        --card-bg: #18181b;
+        --border-color: #27272a;
+        --hover-bg: #27272a;
+        --shadow-subtle: 0 4px 12px rgba(0, 0, 0, 0.4);
+        --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.6);
+        --text-main: #ffffff;
+        --text-muted: #a1a1aa;
+        --admin-color: #ef4444;
+        --input-bg: #27272a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+
+    body {
+        background-color: var(--bg-color); color: var(--text-main);
+        font-family: 'Outfit', sans-serif;
+        min-height: 100vh;
+        display: flex; flex-direction: column;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        -webkit-user-drag: none;
+    }
+
+    /* =========================================
+       2. LAYOUT & PLAYER
+       ========================================= */
+    .player-layout {
+        width: 100%; max-width: 1200px; margin: 0 auto; padding: 30px 20px;
+        animation: fadeIn 0.4s ease forwards; opacity: 0; transform: translateY(10px);
+    }
+    @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+
+    #player-container {
+        width: 100%; aspect-ratio: 16/9; background: #000;
+        border-radius: 16px; overflow: hidden;
+        border: 1px solid var(--border-color); box-shadow: var(--shadow-float);
+        position: relative;
+    }
+    .artplayer-app { width: 100%; height: 100%; }
+
+    /* =========================================
+       3. METADATA
+       ========================================= */
+    .meta-container {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        margin-top: 25px; gap: 20px; flex-wrap: wrap;
+    }
+    .title-group { flex: 1; min-width: 250px; }
+    .video-title { margin-bottom: 10px; font-size: 24px; font-weight: 700; line-height: 1.3; color: var(--text-main); }
+
+    .user-badge {
+        background: var(--input-bg); padding: 8px 14px; border-radius: 8px;
+        font-size: 12px; font-weight: 600; border: 1px solid var(--border-color);
+        display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted);
+    }
+    .user-badge i { color: #22c55e; }
+
+    /* =========================================
+       DAY SELECTOR
+       ========================================= */
+    .day-selector {
+        display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap;
+    }
+    .day-btn {
+        padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border-color);
+        background: var(--card-bg); color: var(--text-muted); font-family: inherit;
+        font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.2s ease;
+    }
+    .day-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+    .day-btn.active {
+        background: var(--text-main); color: var(--bg-color); border-color: var(--text-main);
+    }
+
+    /* =========================================
+       4. STRICT WATERMARK SYSTEM
+       ========================================= */
+    .static-watermark {
+        position: absolute !important;
+        top: auto !important;
+        right: auto !important;
+        font-family: monospace;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.65);
+        text-transform: none;
+        text-shadow: 1px 1px 4px rgba(0,0,0,0.9);
+        z-index: 20;
+        pointer-events: none;
+    }
+
+    @media (min-width: 769px) {
+        .static-watermark {
+            bottom: 70px !important;
+            left: 40px !important;
+            font-size: 16px !important;
+        }
+    }
+
+    @media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
+        .static-watermark {
+            bottom: 20px !important;
+            left: 12% !important;
+            font-size: 13px !important;
+        }
+    }
+
+    .standby-screen {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: var(--bg-color); color: var(--text-muted); text-align: center; padding: 20px;
+    }
+    .standby-screen h2 { color: var(--text-main); font-size: 20px; margin-bottom: 8px; font-weight: 600;}
+    .standby-screen p { font-size: 14px; }
+
+    /* =========================================
+       5. MODALS, OVERLAYS & PASSCODE
+       ========================================= */
+    #passcode-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: var(--bg-color); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+    }
+
+    .passcode-box {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        padding: 40px 30px; border-radius: 16px; text-align: center;
+        box-shadow: var(--shadow-float); max-width: 400px; width: 90%;
+        animation: slideUp 0.3s ease forwards;
+    }
+    .passcode-box h2 { margin-top: 0; margin-bottom: 20px; font-size: 22px; color: var(--text-main); font-weight: 700; }
+    
+    .passcode-input {
+        width: 100%; padding: 14px; margin-bottom: 15px;
+        background: var(--input-bg); border: 1px solid var(--border-color);
+        color: var(--text-main); border-radius: 8px; font-size: 16px; text-align: center;
+        font-family: 'Outfit', sans-serif;
+    }
+    
+    .passcode-btn {
+        width: 100%; padding: 14px; background: var(--text-main); color: var(--bg-color);
+        border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s ease; font-size: 16px; font-family: inherit;
+    }
+    .passcode-btn:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: var(--shadow-subtle); }
+
+    #guidelines-modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.8); z-index: 10000; display: none;
+        align-items: center; justify-content: center; padding: 20px;
+        animation: fadeInOverlay 0.3s ease;
+    }
+    @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal-content {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 16px; padding: 35px 30px; max-width: 450px; width: 100%;
+        box-shadow: var(--shadow-float); text-align: left;
+        transform: translateY(10px); animation: slideUp 0.3s ease forwards;
+    }
+    @keyframes slideUp { to { transform: translateY(0); } }
+
+    .modal-content h2 { margin-top: 0; margin-bottom: 20px; font-size: 18px; color: var(--text-main); font-weight: 800; text-align: center; letter-spacing: 0.5px;}
+    .modal-content ul { padding-left: 20px; color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    .modal-content ul li { margin-bottom: 12px; }
+    .modal-content p.thank-you { text-align: center; font-weight: 600; color: var(--text-main); margin-bottom: 24px;}
+
+    .btn-close-modal {
+        width: 100%; padding: 14px; background: var(--text-main); color: var(--bg-color);
+        border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s ease; font-size: 14px; font-family: inherit;
+    }
+    .btn-close-modal:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: var(--shadow-subtle); }
+
+    /* ArtPlayer subtitle styling override to fit theme */
+    .art-subtitle {
+        font-size: 25px !important;
+        z-index: 25 !important;
+        -webkit-text-stroke: 1.5px rgba(0,0,0,0.95) !important;
+        text-stroke: 1.5px rgba(0,0,0,0.95) !important;
+        paint-order: stroke fill !important;
+        text-shadow:
+            0 3px 6px rgba(0,0,0,0.9),
+            0 4px 14px rgba(0,0,0,0.7) !important;
+    }
+
+    @media (max-width: 768px) {
+        .player-layout { padding: 20px 15px; }
+        .video-title { font-size: 20px; }
+        .meta-container { flex-direction: column; gap: 15px; }
+        .art-subtitle {
+            font-size: 14px !important;
+            -webkit-text-stroke: 1px rgba(0,0,0,0.95) !important;
+            text-stroke: 1px rgba(0,0,0,0.95) !important;
+            paint-order: stroke fill !important;
+            text-shadow:
+                0 2px 5px rgba(0,0,0,0.9),
+                0 3px 10px rgba(0,0,0,0.7) !important;
+        }
+    }
+</style>
+
+<script>
+    // Anti-Inspect / Anti-Debug Protections
+    if (window.top !== window.self) {
+        window.top.location = window.self.location;
+    }
+
+    // Disable Right Click
+    document.addEventListener('contextmenu', event => event.preventDefault());
+
+    // Disable Keyboard Shortcuts (F12, Ctrl+Shift+I, Ctrl+U, etc.)
+    document.onkeydown = function(e) {
+        if(e.keyCode == 123) { return false; } // F12
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) { return false; }
+        if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) { return false; }
+    };
+
+    // Advanced debugger trap
+    setInterval(function(){
+        (function(){ return false; }['constructor']('debugger')());
+    }, 100);
+</script>
+
+</head>
+<body>
+
+<!-- Passcode Overlay -->
+<div id="passcode-overlay">
+    <div class="passcode-box">
+        <h2><i class="fas fa-lock"></i> Vault Access</h2>
+        <input type="password" id="passcode-input" class="passcode-input" placeholder="Enter Passcode" />
+        <button class="passcode-btn" onclick="verifyPasscode()">Unlock</button>
+        <p id="passcode-error" style="color: #ef4444; display: none; margin-top: 15px; font-size: 14px; font-weight: 500;">Incorrect Passcode</p>
+    </div>
+</div>
+
+<div id="guidelines-modal">
+    <div class="modal-content">
+        <h2><i class="fas fa-shield-alt" style="color: var(--admin-color); margin-right: 8px;"></i> VIEWING GUIDELINES</h2>
+        <ul>
+            <li>Avoid sharing any links publicly, especially the one you are currently using to watch.</li>
+            <li>Do not take screenshots or screen recordings while the access code is visible on screen.</li>
+            <li>Please refrain from posting screenshots or recordings while the video is being watched.</li>
+            <li>You may share or post your screenshots or screen recordings only after you're done watching.</li>
+        </ul>
+        <p class="thank-you">Thank you for cooperating!</p>
+        <button class="btn-close-modal" onclick="closeGuidelinesModal()">I Understand</button>
+    </div>
+</div>
+
+<div class="player-layout" id="main-content" style="display: none;">
+  <div id="player-container">
+     <div class="artplayer-app"></div>
+  </div>
+
+  <div class="day-selector" id="day-selector"></div>
+
+  <div class="meta-container">
+      <div class="title-group">
+          <div class="video-title" id="main-title">2026 DINO X PICHEOLIN 吉BOARD SHOW </div>
+          <div class="user-badge" id="username-badge">
+              <i class="fas fa-user-check"></i> Zone Vault
+          </div>
+      </div>
+  </div>
+</div>
+
+<script>
+let art = null;
+
+// ===== VOD SOURCES =====
+const VOD_DAYS = [
+    {
+        label: "Day 1",
+        video: "https://stream.mux.com/00XF2Un02hlx6021bFP8nZjsga3yY6g5LJuev5hT4p7NII.m3u8",
+        subtitle: "https://res.cloudinary.com/rabnzafj/raw/upload/v1787361822/din-d1.en_kzh7dl.vtt",
+    },
+    {
+        label: "Day 2",
+        video: "#",
+        subtitle: "#",
+    },
+    {
+        label: "Day 3",
+        video: "#",
+        subtitle: "#",
+    }
+];
+
+let currentDayIndex = 0;
+
+// Trigger Unlock on Enter Key
+document.getElementById("passcode-input").addEventListener("keypress", function(event) {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        verifyPasscode();
+    }
+});
+
+function verifyPasscode() {
+    const input = document.getElementById('passcode-input').value;
+    const errorMsg = document.getElementById('passcode-error');
+
+    if (input === "dxp2026") {
+        document.getElementById('passcode-overlay').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+        startApp();
+    } else {
+        errorMsg.style.display = 'block';
+        document.getElementById('passcode-input').value = "";
+    }
+}
+
+function startApp() {
+    checkGuidelinesModal();
+    renderDayButtons();
+    if (!art) {
+        selectDay(currentDayIndex);
+    }
+}
+
+function checkGuidelinesModal() {
+    const today = new Date().toDateString();
+    const lastSeen = localStorage.getItem('zone_vault_guidelines_date');
+
+    if (lastSeen !== today) {
+        document.getElementById('guidelines-modal').style.display = 'flex';
+    }
+}
+
+function closeGuidelinesModal() {
+    const today = new Date().toDateString();
+    localStorage.setItem('zone_vault_guidelines_date', today);
+    document.getElementById('guidelines-modal').style.display = 'none';
+
+    if(art) {
+        art.play().catch(() => {});
+    }
+}
+
+function renderDayButtons() {
+    const wrap = document.getElementById("day-selector");
+    if (!wrap) return;
+
+    if (VOD_DAYS.length <= 1) {
+        wrap.style.display = "none";
+        return;
+    }
+
+    wrap.innerHTML = VOD_DAYS.map((day, i) =>
+        `<button class="day-btn${i === currentDayIndex ? ' active' : ''}" onclick="selectDay(${i})">${day.label}</button>`
+    ).join("");
+}
+
+function selectDay(index) {
+    if (!VOD_DAYS[index]) return;
+    currentDayIndex = index;
+
+    document.querySelectorAll(".day-btn").forEach((btn, i) => {
+        btn.classList.toggle("active", i === index);
+    });
+
+    const day = VOD_DAYS[index];
+    renderVodPlayer(day.video, day.subtitle);
+}
+
+function renderVodPlayer(videoUrl, subtitleUrl) {
+    const container = document.getElementById("player-container");
+
+    if (art) {
+        art.destroy(true);
+        art = null;
+    }
+
+    if (!videoUrl || videoUrl.trim() === "") {
+        container.innerHTML = `
+            <div class="standby-screen">
+                <i class="fas fa-film" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
+                <h2>No Video</h2>
+                <p>This video hasn't been set up yet.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = `<div class="artplayer-app"></div>`;
+    setupArtplayer(videoUrl, subtitleUrl);
+}
+
+function setupArtplayer(streamUrl, subtitleUrl) {
+    art = new Artplayer({
+        container: '.artplayer-app',
+        url: streamUrl,
+        type: 'm3u8',
+        autoplay: true,
+        fullscreen: true,
+        fullscreenWeb: false,
+        volume: 0.8,
+        setting: true,
+        pip: false,
+        playbackRate: true,
+        aspectRatio: false,
+        miniProgressBar: true,
+        isLive: false,
+        theme: '#ffffff',
+
+        subtitle: subtitleUrl ? {
+            url: subtitleUrl,
+            type: 'vtt',
+            style: {
+                fontSize: '25px',
+                WebkitTextStroke: '1.5px rgba(0,0,0,0.95)',
+                paintOrder: 'stroke fill',
+                textShadow: '0 3px 6px rgba(0,0,0,0.9), 0 4px 14px rgba(0,0,0,0.7)',
+            },
+            encoding: 'utf-8',
+        } : {},
+
+        customType: {
+            m3u8: function (video, url, art) {
+                if (Hls.isSupported()) {
+                    if (art.hls) art.hls.destroy();
+                    const hls = new Hls(); hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
+                        levels.unshift({ default: true, html: 'Auto', index: -1 });
+                        art.controls.update({
+                            name: 'quality', index: 20, position: 'right', html: 'Quality',
+                            selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
+                        });
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
+            }
+        },
+        layers: [
+            {
+                name: 'username-watermark',
+                html: `<div class="static-watermark">Zone Vault</div>`,
+            }
+        ],
+    });
+
+    art.on('fullscreen', (state) => {
+        if (state) {
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('landscape').catch((e) => {
+                    console.log('Orientation lock failed:', e);
+                });
+            }
+        } else {
+            if (screen.orientation && screen.orientation.unlock) {
+                screen.orientation.unlock();
+            }
+        }
+    });
+}
+</script>
+</body>
+</html>
