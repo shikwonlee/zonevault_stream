@@ -391,12 +391,17 @@ function selectDay(index) {
 function renderVodPlayer(videoUrl, subtitleUrl) {
     const container = document.getElementById("player-container");
 
+    // ===== FIX: Explicitly pause and destroy HLS before destroying Artplayer =====
     if (art) {
-        art.destroy(true);
+        art.pause(); // Pause the video
+        if (art.hls) {
+            art.hls.destroy(); // Completely destroy the background stream
+        }
+        art.destroy(true); // Remove the player instance and DOM element
         art = null;
     }
 
-    if (!videoUrl || videoUrl.trim() === "") {
+    if (!videoUrl || videoUrl.trim() === "" || videoUrl === "#") {
         container.innerHTML = `
             <div class="standby-screen">
                 <i class="fas fa-film" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
@@ -428,7 +433,7 @@ function setupArtplayer(streamUrl, subtitleUrl) {
         isLive: false,
         theme: '#ffffff',
 
-        subtitle: subtitleUrl ? {
+        subtitle: (subtitleUrl && subtitleUrl !== "#") ? {
             url: subtitleUrl,
             type: 'vtt',
             style: {
