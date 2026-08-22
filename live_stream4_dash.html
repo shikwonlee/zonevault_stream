@@ -307,7 +307,7 @@ const DASH_PLAYER_CONFIG = {
     mpdUrl: "https://video-weverse-wmt.kiswe.com/wmt:eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6InZpZGVvLXdldmVyc2Utd210In0.eyJpYXQiOjE3ODczODU2NDgsIndtdmVyIjoxLCJ3bXBhdGZtdCI6ImJhc2U2NCIsIndtcGF0IjoiMjZNUjJzVThTaWVEbTJwV2xiZjVGQytWV1IyME1mY3RsVWcyOWNGclQ5eFgzUUtjSHZCSWhrcWNqODhVNTNSclVMbUxDSHl3SzNvdml0S2RsUU9LMlE9PSIsIndtcGF0bGVuIjo1MTIsImt1c2VyaWQiOjUyMDU3NjAsImV4cCI6MTc4NzQ3MjA0OCwia2FwcCI6InRob3ItcHJvZCJ9.fDQtCNOJuDw1ShmsKLMeBHULegU20N6CcbgKEAwOXvA/media/kiswe_KISWE_200_2026_08_22_06_31_40_459/mix-stream1.mpd", // PASTE YOUR AUTHORIZED .MPD URL HERE
     clearKey: {
         keyId: "531946e2fe824c3b971d55b64259ecea", // PASTE THE 32-CHARACTER CLEARKEY KID HERE
-        key: ":3ca58d5c3af16c511f97a78c08c26476",   // PASTE THE 32-CHARACTER CLEARKEY VALUE HERE
+        key: "3ca58d5c3af16c511f97a78c08c26476",   // PASTE THE 32-CHARACTER CLEARKEY VALUE HERE
     },
     subtitleFiles: {
         en: "",  // OPTIONAL ENGLISH .VTT URL
@@ -654,12 +654,6 @@ function attachStream(videoUrl, subtitleUrl) {
         return;
     }
 
-    if (isDashSource(videoUrl)) {
-        container.innerHTML = `<div class="dash-player-shell"><video id="dash-video" controls playsinline></video><select id="dash-subtitle-select" class="dash-subtitle-select" aria-label="Subtitle language"><option>Loading subtitles…</option></select></div>`;
-        setupDashPlayer(videoUrl);
-        return;
-    }
-
     container.innerHTML = `<div class="artplayer-app"></div>`;
     setupArtplayer(videoUrl, subtitleUrl);
 }
@@ -711,50 +705,42 @@ function inferSidecarSubtitleMime(url) {
     return "text/vtt";
 }
 
-function configureDashSubtitleSelector(player) {
-    const selector = document.getElementById("dash-subtitle-select");
-    if (!selector) return;
-
+function configureDashSubtitleSelector(player, artInstance) {
     const detectedTracks = player.getTextTracks();
-    selector.innerHTML = `<option value="off">Subtitles: Off</option>`;
-
     if (!detectedTracks.length) {
-        selector.innerHTML = `<option value="off">No subtitle tracks declared in MPD</option>`;
-        selector.disabled = true;
         return;
     }
 
-    selector.disabled = false;
     const preferredLanguage = normalizeSubtitleLanguage(DASH_PLAYER_CONFIG.defaultSubtitleLanguage) || "fil";
-    detectedTracks.forEach((track, index) => {
-        const option = document.createElement("option");
-        option.value = String(index);
-        option.textContent = `Subtitles: ${subtitleLabel(track)}`;
-        selector.appendChild(option);
-    });
-
     const defaultIndex = detectedTracks.findIndex((track) => normalizeSubtitleLanguage(track.language) === preferredLanguage);
     const englishIndex = detectedTracks.findIndex((track) => normalizeSubtitleLanguage(track.language) === "en");
     const selectedIndex = defaultIndex >= 0 ? defaultIndex : (englishIndex >= 0 ? englishIndex : 0);
-    selector.value = String(selectedIndex);
+
     player.selectTextTrack(detectedTracks[selectedIndex]);
     player.setTextTrackVisibility(true);
-
-    selector.addEventListener("change", () => {
-        if (selector.value === "off") {
-            player.setTextTrackVisibility(false);
-            return;
-        }
-        const track = detectedTracks[Number(selector.value)];
-        if (track) {
-            player.selectTextTrack(track);
-            player.setTextTrackVisibility(true);
+    artInstance.controls.update({
+        name: "dash-subtitles",
+        index: 21,
+        position: "right",
+        html: "Subtitles",
+        selector: [
+            { default: false, html: "Off", index: -1 },
+            ...detectedTracks.map((track, index) => ({ default: index === selectedIndex, html: subtitleLabel(track), index })),
+        ],
+        onSelect: function (item) {
+            if (item.index === -1) {
+                player.setTextTrackVisibility(false);
+            } else if (detectedTracks[item.index]) {
+                player.selectTextTrack(detectedTracks[item.index]);
+                player.setTextTrackVisibility(true);
+            }
+            return item.html;
         }
     });
 }
 
-async function setupDashPlayer(streamUrl) {
-    const video = document.getElementById("dash-video");
+async function setupDashPlayer(streamUrl, artInstance, nativeVideo) {
+    const video = nativeVideo || artInstance.video;
     if (!video || !window.shaka) {
         showStandby("DASH player unavailable", "Shaka Player could not be loaded.");
         return;
@@ -788,7 +774,7 @@ async function setupDashPlayer(streamUrl) {
     try {
         await player.load(streamUrl);
         await addConfiguredSubtitleFiles(player);
-        configureDashSubtitleSelector(player);
+        configureDashSubtitleSelector(player, artInstance);
         video.muted = true;
         await video.play().catch(() => {});
     } catch (error) {
@@ -838,7 +824,7 @@ function setupArtplayer(streamUrl, subtitleUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
         url: streamUrl,
-        type: 'm3u8',
+        type: isDashSource(streamUrl) ? 'mpd' : 'm3u8',
         autoplay: true,
 
         fullscreen: true,
@@ -866,6 +852,9 @@ function setupArtplayer(streamUrl, subtitleUrl) {
         } : {},
 
         customType: {
+            mpd: function (video, url, art) {
+                void setupDashPlayer(url, art, video);
+            },
             m3u8: function (video, url, art) {
                 if (Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
