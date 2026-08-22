@@ -731,6 +731,36 @@ function configureDashSubtitleSelector(player, artInstance) {
     });
 }
 
+function configureDashQualityControl(player, artInstance) {
+    const byHeight = new Map();
+    player.getVariantTracks().forEach((track) => {
+        if (track.height && !byHeight.has(track.height)) byHeight.set(track.height, track);
+    });
+
+    const qualityTracks = Array.from(byHeight.values()).sort((a, b) => b.height - a.height);
+    if (!qualityTracks.length) return;
+
+    artInstance.controls.update({
+        name: "quality",
+        index: 20,
+        position: "right",
+        html: "Auto",
+        selector: [
+            { default: true, html: "Auto", index: -1 },
+            ...qualityTracks.map((track, index) => ({ default: false, html: `${track.height}p`, index })),
+        ],
+        onSelect: function (item) {
+            if (item.index === -1) {
+                player.configure({ abr: { enabled: true } });
+            } else if (qualityTracks[item.index]) {
+                player.configure({ abr: { enabled: false } });
+                player.selectVariantTrack(qualityTracks[item.index], true);
+            }
+            return item.html;
+        }
+    });
+}
+
 async function setupDashPlayer(streamUrl, artInstance, nativeVideo) {
     const video = nativeVideo || artInstance.video;
     if (!video || !window.shaka) {
@@ -765,6 +795,7 @@ async function setupDashPlayer(streamUrl, artInstance, nativeVideo) {
 
     try {
         await player.load(streamUrl);
+        configureDashQualityControl(player, artInstance);
         await addConfiguredSubtitleFiles(player);
         configureDashSubtitleSelector(player, artInstance);
         video.muted = true;
@@ -873,7 +904,7 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                         let levels = hls.levels.map((l, i) => ({ default: false, html: l.height + 'p', index: i }));
                         levels.unshift({ default: true, html: 'Auto', index: -1 });
                         art.controls.update({
-                            name: 'quality', index: 20, position: 'right', html: 'Quality',
+                            name: 'quality', index: 20, position: 'right', html: 'Auto',
                             selector: levels, onSelect: function (item) { hls.currentLevel = item.index; return item.html; }
                         });
                         configureHlsSubtitleControl(hls, art);
