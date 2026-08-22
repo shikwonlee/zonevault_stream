@@ -676,15 +676,7 @@ function normalizeSubtitleLanguage(language) {
 function subtitleLabel(track) {
     const language = normalizeSubtitleLanguage(track.language);
     const languageLabel = language === "fil" ? "Filipino" : language === "en" ? "English" : (track.label || track.language || "Subtitle");
-    return `${languageLabel} · ${subtitleFormatLabel(track)}`;
-}
-
-function subtitleFormatLabel(track) {
-    const format = (track.mimeType || track.codecs || "").toLowerCase();
-    if (format.includes("subrip") || format.includes("srt")) return "SRT";
-    if (format.includes("ttml") || format.includes("xml")) return "TTML/XML";
-    if (format.includes("vtt")) return "WebVTT";
-    return format ? format.toUpperCase() : "MPD text";
+    return languageLabel;
 }
 
 async function addConfiguredSubtitleFiles(player) {
