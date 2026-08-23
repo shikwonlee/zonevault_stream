@@ -103,6 +103,22 @@
     .server-btn .dot.off { background: #ef4444; }
     .server-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
+    .download-row {
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        margin-top: 16px;
+    }
+    .download-btn {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 10px 16px; border: 1px solid var(--border-color);
+        border-radius: 8px; background: var(--text-main); color: var(--bg-color);
+        font-family: inherit; font-size: 14px; font-weight: 700;
+        cursor: pointer; transition: 0.2s ease;
+    }
+    .download-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
+    .download-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .download-status { color: var(--text-muted); font-size: 12px; }
+    .download-status.error { color: #f87171; }
+
     /* =========================================
        STRICT WATERMARK SYSTEM
        ========================================= */
@@ -301,6 +317,13 @@
 
   <div class="server-selector" id="server-selector"></div>
 
+  <div class="download-row">
+      <button class="download-btn" id="download-btn" type="button" onclick="downloadCurrentMedia()" disabled>
+          <i class="fas fa-download"></i> Download Video + Subtitle
+      </button>
+      <span class="download-status" id="download-status" role="status" aria-live="polite"></span>
+  </div>
+
   <div class="meta-container">
       <div class="title-group">
           <div class="video-title" id="main-title">Loading...</div>
@@ -338,6 +361,8 @@ let isUserApproved = false;
    2. Paste the matching ClearKey KID and key in clearKey.
    3. Leave subtitleFiles blank to auto-detect every text track declared by the MPD.
       Optional sidecar URLs may be .vtt, .srt, .ttml, or .xml and must allow CORS.
+   4. For downloads, provide an authorized direct MP4/WebM URL in downloadUrl.
+      The MPD/HLS manifest itself is not a downloadable video file.
    ======================================================================== */
 const DASH_PLAYER_CONFIG = {
     mpdUrl: "https://video-weverse-wmt.kiswe.com/wmt:eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6InZpZGVvLXdldmVyc2Utd210In0.eyJpYXQiOjE3ODc0NjkxOTksIndtdmVyIjoxLCJ3bXBhdGZtdCI6ImJhc2U2NCIsIndtcGF0IjoiMjZNUjJzVThTaWVEbTJwV2xiZjVGQytWV1IyME1mY3RsVWcyOWNGclQ5eFgzUUtjSHZCSWhrcWNqODhVNTNSclVMbUxDSHl3SzNvdml0S2RsUU9LMlE9PSIsIndtcGF0bGVuIjo1MTIsImt1c2VyaWQiOjUyMDU3NjAsImV4cCI6MTc4NzU1NTU5OSwia2FwcCI6InRob3ItcHJvZCJ9.w_BNC2uHsT22H_XC7yAol2-WYCLModPi3EWs9Xs1tjg/media/kiswe_KISWE_249_2026_08_23_05_28_06_595/mix-stream1.mpd", // PASTE YOUR AUTHORIZED .MPD URL HERE
@@ -349,6 +374,8 @@ const DASH_PLAYER_CONFIG = {
         en: "",  // OPTIONAL ENGLISH .VTT URL
         fil: "", // OPTIONAL FILIPINO/TAGALOG .VTT URL
     },
+    downloadUrl: "",          // OPTIONAL AUTHORIZED DIRECT .MP4/.WEBM URL
+    subtitleDownloadUrl: "",  // OPTIONAL AUTHORIZED .VTT/.SRT URL
     defaultSubtitleLanguage: "fil", // Uses Filipino when available; otherwise English.
 };
 
@@ -367,7 +394,16 @@ function destroyDashPlayer() {
 
 // currentServer: 1 = AngelThump, 2 = Admin link
 let currentServer = null;
-let currentEventData = { angelthump_channel: "", stream_url: "", stream_subtitle: "" };
+let currentEventData = {
+    angelthump_channel: "",
+    stream_url: "",
+    stream_subtitle: "",
+    download_url: "",
+    download_subtitle: "",
+};
+let activeMediaUrl = "";
+let activeSubtitleUrl = "";
+let downloadInProgress = false;
 
 // ---- AngelThump polling state (ported from Signal Desk) ----
 const AT_POLL_MS = 5000;
@@ -599,8 +635,15 @@ function startListeningToEvent(eventId) {
         const configuredDashUrl = getConfiguredDashUrl();
         currentEventData.stream_url = configuredDashUrl || ev.stream_url || ev.url || "";
         currentEventData.stream_subtitle = configuredDashUrl ? "" : (ev.stream_subtitle || "");
+        currentEventData.download_url = normalizeMediaUrl(
+            DASH_PLAYER_CONFIG.downloadUrl || ev.download_url || ev.video_download_url || ""
+        );
+        currentEventData.download_subtitle = normalizeMediaUrl(
+            DASH_PLAYER_CONFIG.subtitleDownloadUrl || ev.download_subtitle || ev.subtitle_download_url || ""
+        );
 
         renderServerButtons();
+        updateDownloadButton();
 
         if (currentServer === null) {
             // Auto-pick a default server: prefer AngelThump if configured, else the admin link.
@@ -664,6 +707,9 @@ function selectServer(serverNum) {
 function showStandby(title, sub) {
     if (!isUserApproved) return;
     if (art) { art.destroy(true); art = null; }
+    activeMediaUrl = "";
+    activeSubtitleUrl = "";
+    updateDownloadButton();
     const container = document.getElementById("player-container");
     container.innerHTML = `
         <div class="standby-screen">
@@ -679,6 +725,9 @@ function attachStream(videoUrl, subtitleUrl) {
 
     videoUrl = normalizeMediaUrl(videoUrl);
     subtitleUrl = normalizeMediaUrl(subtitleUrl);
+    activeMediaUrl = videoUrl;
+    activeSubtitleUrl = subtitleUrl;
+    updateDownloadButton();
     const container = document.getElementById("player-container");
 
     if (art) {
@@ -707,6 +756,119 @@ function normalizeMediaUrl(url) {
 
 function getConfiguredDashUrl() {
     return normalizeMediaUrl(DASH_PLAYER_CONFIG.mpdUrl);
+}
+
+function isManifestUrl(url) {
+    return /\.(?:m3u8|mpd)(?:$|[?#])/i.test((url || "").trim());
+}
+
+function getDownloadFileName(url, fallbackName) {
+    try {
+        const pathname = new URL(url, window.location.href).pathname;
+        const lastPart = decodeURIComponent(pathname.split("/").pop() || "").trim();
+        if (lastPart && !isManifestUrl(lastPart)) return lastPart.replace(/[^a-z0-9._-]/gi, "_");
+    } catch (error) {
+        console.debug("Could not derive a download filename.");
+    }
+    return fallbackName;
+}
+
+function getSubtitleDownloadUrl() {
+    return currentEventData.download_subtitle
+        || activeSubtitleUrl
+        || normalizeMediaUrl(DASH_PLAYER_CONFIG.subtitleDownloadUrl)
+        || normalizeMediaUrl((DASH_PLAYER_CONFIG.subtitleFiles || {}).fil)
+        || normalizeMediaUrl((DASH_PLAYER_CONFIG.subtitleFiles || {}).en);
+}
+
+function setDownloadStatus(message, isError) {
+    const status = document.getElementById("download-status");
+    if (!status) return;
+    status.textContent = message || "";
+    status.classList.toggle("error", !!isError);
+}
+
+function updateDownloadButton() {
+    const button = document.getElementById("download-btn");
+    if (!button) return;
+    const source = currentEventData.download_url || activeMediaUrl || currentEventData.stream_url;
+    const hasDirectVideoFile = !!source && !isManifestUrl(source);
+    button.disabled = !isUserApproved || !hasDirectVideoFile || downloadInProgress;
+    button.title = hasDirectVideoFile
+        ? "Download the authorized video file and subtitle"
+        : "Configure an authorized direct MP4/WebM download URL";
+}
+
+function saveBlob(blob, filename) {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+}
+
+async function downloadFile(url, filename) {
+    const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) throw new Error(`Download failed (${response.status})`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("The downloaded file is empty.");
+    saveBlob(blob, filename);
+}
+
+async function downloadCurrentMedia() {
+    if (downloadInProgress || !isUserApproved) return;
+
+    const videoUrl = currentEventData.download_url || activeMediaUrl || currentEventData.stream_url;
+    const subtitleUrl = getSubtitleDownloadUrl();
+    if (!videoUrl) {
+        setDownloadStatus("No video source is available.", true);
+        return;
+    }
+
+    // A manifest is only a streaming playlist. It is not a playable video file.
+    // Use live_events/{id}/download_url for an authorized MP4/WebM or server-side export endpoint.
+    if (isManifestUrl(videoUrl) && !currentEventData.download_url) {
+        setDownloadStatus("This stream is a manifest. Add an authorized MP4/download_url to enable video download.", true);
+        if (subtitleUrl && !isManifestUrl(subtitleUrl)) {
+            try {
+                await downloadFile(subtitleUrl, getDownloadFileName(subtitleUrl, "subtitles.vtt"));
+            } catch (error) {
+                console.error("Subtitle download failed", error);
+            }
+        }
+        return;
+    }
+
+    downloadInProgress = true;
+    updateDownloadButton();
+    setDownloadStatus("Preparing downloads…", false);
+
+    try {
+        const title = (document.getElementById("main-title")?.textContent || "video")
+            .trim().replace(/[^a-z0-9._-]+/gi, "_").replace(/^_|_$/g, "") || "video";
+        const extension = /\.([a-z0-9]+)(?:$|[?#])/i.exec(videoUrl)?.[1] || "mp4";
+        await downloadFile(videoUrl, `${title}.${extension}`);
+
+        if (subtitleUrl && !isManifestUrl(subtitleUrl)) {
+            // Small delay helps browsers accept the second download after the user click.
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+            const subtitleName = getDownloadFileName(subtitleUrl, `${title}.vtt`);
+            await downloadFile(subtitleUrl, subtitleName);
+            setDownloadStatus("Video and subtitle downloads started.", false);
+        } else {
+            setDownloadStatus("Video download started. No separate subtitle file was provided.", false);
+        }
+    } catch (error) {
+        console.error("Media download failed", error);
+        setDownloadStatus("Download failed. Check CORS or provide a server-side download_url.", true);
+    } finally {
+        downloadInProgress = false;
+        updateDownloadButton();
+    }
 }
 
 function isDashSource(url) {
