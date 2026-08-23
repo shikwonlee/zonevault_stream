@@ -304,7 +304,7 @@ let isUserApproved = false;
       Optional sidecar URLs may be .vtt, .srt, .ttml, or .xml and must allow CORS.
    ======================================================================== */
 const DASH_PLAYER_CONFIG = {
-    mpdUrl: "://video-weverse-wmt.kiswe.com/wmt:eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6InZpZGVvLXdldmVyc2Utd210In0.eyJpYXQiOjE3ODc0NjkxOTksIndtdmVyIjoxLCJ3bXBhdGZtdCI6ImJhc2U2NCIsIndtcGF0IjoiMjZNUjJzVThTaWVEbTJwV2xiZjVGQytWV1IyME1mY3RsVWcyOWNGclQ5eFgzUUtjSHZCSWhrcWNqODhVNTNSclVMbUxDSHl3SzNvdml0S2RsUU9LMlE9PSIsIndtcGF0bGVuIjo1MTIsImt1c2VyaWQiOjUyMDU3NjAsImV4cCI6MTc4NzU1NTU5OSwia2FwcCI6InRob3ItcHJvZCJ9.w_BNC2uHsT22H_XC7yAol2-WYCLModPi3EWs9Xs1tjg/media/kiswe_KISWE_249_2026_08_23_05_28_06_595/mix-stream1.mpd", // PASTE YOUR AUTHORIZED .MPD URL HERE
+    mpdUrl: "https://video-weverse-wmt.kiswe.com/wmt:eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6InZpZGVvLXdldmVyc2Utd210In0.eyJpYXQiOjE3ODc0NjkxOTksIndtdmVyIjoxLCJ3bXBhdGZtdCI6ImJhc2U2NCIsIndtcGF0IjoiMjZNUjJzVThTaWVEbTJwV2xiZjVGQytWV1IyME1mY3RsVWcyOWNGclQ5eFgzUUtjSHZCSWhrcWNqODhVNTNSclVMbUxDSHl3SzNvdml0S2RsUU9LMlE9PSIsIndtcGF0bGVuIjo1MTIsImt1c2VyaWQiOjUyMDU3NjAsImV4cCI6MTc4NzU1NTU5OSwia2FwcCI6InRob3ItcHJvZCJ9.w_BNC2uHsT22H_XC7yAol2-WYCLModPi3EWs9Xs1tjg/media/kiswe_KISWE_249_2026_08_23_05_28_06_595/mix-stream1.mpd", // PASTE YOUR AUTHORIZED .MPD URL HERE
     clearKey: {
         keyId: "03c087566e0b4c658d48d9c9ab0787d0", // PASTE THE 32-CHARACTER CLEARKEY KID HERE
         key: "1b72b61fd9710499d045f94c8afa1d59",   // PASTE THE 32-CHARACTER CLEARKEY VALUE HERE
@@ -641,6 +641,8 @@ function showStandby(title, sub) {
 function attachStream(videoUrl, subtitleUrl) {
     if (!isUserApproved) return;
 
+    videoUrl = normalizeMediaUrl(videoUrl);
+    subtitleUrl = normalizeMediaUrl(subtitleUrl);
     const container = document.getElementById("player-container");
 
     if (art) {
@@ -658,8 +660,17 @@ function attachStream(videoUrl, subtitleUrl) {
     setupArtplayer(videoUrl, subtitleUrl);
 }
 
+function normalizeMediaUrl(url) {
+    const value = (url || "").trim();
+    if (!value) return "";
+    // Accept the common pasted form "://host/path" while preserving valid URLs.
+    if (value.startsWith("://")) return "https" + value;
+    if (value.startsWith("//")) return window.location.protocol + value;
+    return value;
+}
+
 function getConfiguredDashUrl() {
-    return (DASH_PLAYER_CONFIG.mpdUrl || "").trim();
+    return normalizeMediaUrl(DASH_PLAYER_CONFIG.mpdUrl);
 }
 
 function isDashSource(url) {
@@ -774,6 +785,11 @@ async function setupDashPlayer(streamUrl, artInstance, nativeVideo) {
         return;
     }
 
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+
     const player = new shaka.Player(video);
     dashPlayer = player;
     dashVideo = video;
@@ -849,6 +865,8 @@ function setupArtplayer(streamUrl, subtitleUrl) {
         url: streamUrl,
         type: isDashSource(streamUrl) ? 'mpd' : 'm3u8',
         autoplay: true,
+        muted: true,
+        playsInline: true,
 
         fullscreen: true,
         fullscreenWeb: false,
@@ -879,6 +897,11 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                 void setupDashPlayer(url, art, video);
             },
             m3u8: function (video, url, art) {
+                video.autoplay = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.setAttribute("playsinline", "");
+
                 if (Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
                     const hls = new Hls();
@@ -909,7 +932,10 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                         });
                         configureHlsSubtitleControl(hls, art);
                     });
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                    video.play().catch(() => {});
+                }
             }
         },
         layers: [
