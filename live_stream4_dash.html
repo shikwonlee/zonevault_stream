@@ -218,6 +218,42 @@
         border-radius: 7px; background: rgba(9,9,11,0.84); color: #fff;
         font-family: 'Outfit', sans-serif; font-size: 12px; backdrop-filter: blur(8px);
     }
+
+    /* YouTube-style playback / DVR timeline */
+    .youtube-progress {
+        position: absolute; left: 12px; right: 12px; bottom: 38px;
+        height: 16px; z-index: 50; display: flex; align-items: center;
+        cursor: pointer; pointer-events: auto;
+    }
+    .youtube-progress .timeline-track {
+        position: relative; width: 100%; height: 3px; border-radius: 999px;
+        background: rgba(255,255,255,0.35); transition: height 0.12s ease;
+    }
+    .youtube-progress:hover .timeline-track,
+    .youtube-progress:focus-within .timeline-track { height: 5px; }
+    .youtube-progress .timeline-buffer,
+    .youtube-progress .timeline-played {
+        position: absolute; top: 0; left: 0; height: 100%; border-radius: inherit;
+        pointer-events: none;
+    }
+    .youtube-progress .timeline-buffer { background: rgba(255,255,255,0.65); width: 0; }
+    .youtube-progress .timeline-played { background: #ff1744; width: 0; }
+    .youtube-progress .timeline-thumb {
+        position: absolute; top: 50%; left: 0; width: 12px; height: 12px;
+        border-radius: 50%; background: #ff1744; transform: translate(-50%, -50%) scale(0);
+        transition: transform 0.12s ease; pointer-events: none;
+    }
+    .youtube-progress:hover .timeline-thumb,
+    .youtube-progress:focus-within .timeline-thumb { transform: translate(-50%, -50%) scale(1); }
+    .youtube-progress input[type='range'] {
+        position: absolute; inset: -7px 0; width: 100%; height: 17px; margin: 0;
+        opacity: 0; cursor: pointer; z-index: 2;
+    }
+    .youtube-progress input[type='range']:disabled { cursor: default; }
+
+    @media (max-width: 768px) {
+        .youtube-progress { left: 9px; right: 9px; bottom: 34px; }
+    }
 </style>
 
 <script>
@@ -859,6 +895,135 @@ function configureHlsSubtitleControl(hls, art) {
     });
 }
 
+function getVideoSeekWindow(video) {
+    if (!video) return null;
+
+    const duration = Number(video.duration);
+    if (Number.isFinite(duration) && duration > 0) {
+        return { start: 0, end: duration };
+    }
+
+    // Live HLS/DASH streams may expose a finite DVR window through seekable.
+    try {
+        if (video.seekable && video.seekable.length) {
+            const last = video.seekable.length - 1;
+            const start = video.seekable.start(0);
+            const end = video.seekable.end(last);
+            if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+                return { start, end };
+            }
+        }
+    } catch (error) {
+        console.debug("Seekable range is not available yet.");
+    }
+
+    return null;
+}
+
+function formatPlaybackTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+    const total = Math.floor(seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    return hours > 0
+        ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+        : `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function installYouTubeProgressBar(artInstance) {
+    const video = artInstance && artInstance.video;
+    const host = artInstance && artInstance.template && artInstance.template.$player
+        ? artInstance.template.$player
+        : document.querySelector(".artplayer-app");
+    if (!video || !host) return;
+
+    if (artInstance.__youtubeProgressCleanup) {
+        artInstance.__youtubeProgressCleanup();
+    }
+
+    host.style.position = "relative";
+    const bar = document.createElement("div");
+    bar.className = "youtube-progress";
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", "Playback timeline");
+    bar.innerHTML = `
+        <div class="timeline-track">
+            <div class="timeline-buffer"></div>
+            <div class="timeline-played"></div>
+            <div class="timeline-thumb"></div>
+        </div>
+        <input type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek video">
+    `;
+    host.appendChild(bar);
+
+    const input = bar.querySelector("input");
+    const buffer = bar.querySelector(".timeline-buffer");
+    const played = bar.querySelector(".timeline-played");
+    const thumb = bar.querySelector(".timeline-thumb");
+    const mediaEvents = ["loadedmetadata", "durationchange", "progress", "timeupdate", "canplay", "seeking", "seeked"];
+
+    const update = () => {
+        const seekWindow = getVideoSeekWindow(video);
+        if (!seekWindow) {
+            input.disabled = true;
+            input.value = "0";
+            played.style.width = "0%";
+            buffer.style.width = "0%";
+            thumb.style.left = "0%";
+            bar.style.opacity = "0.7";
+            return;
+        }
+
+        const span = seekWindow.end - seekWindow.start;
+        const current = Math.min(seekWindow.end, Math.max(seekWindow.start, Number(video.currentTime) || seekWindow.start));
+        const position = Math.max(0, Math.min(1, (current - seekWindow.start) / span));
+        const bufferedEnd = video.buffered && video.buffered.length
+            ? video.buffered.end(video.buffered.length - 1)
+            : seekWindow.start;
+        const bufferedPosition = Math.max(0, Math.min(1, (bufferedEnd - seekWindow.start) / span));
+        const percent = `${position * 100}%`;
+
+        input.disabled = false;
+        input.value = String(position * 100);
+        played.style.width = percent;
+        thumb.style.left = percent;
+        buffer.style.width = `${bufferedPosition * 100}%`;
+        input.setAttribute("aria-valuetext", `${formatPlaybackTime(current)} of ${formatPlaybackTime(seekWindow.end)}`);
+        bar.style.opacity = "1";
+    };
+
+    const seek = () => {
+        const seekWindow = getVideoSeekWindow(video);
+        if (!seekWindow) return;
+        const ratio = Math.max(0, Math.min(1, Number(input.value) / 100));
+        video.currentTime = seekWindow.start + ratio * (seekWindow.end - seekWindow.start);
+        update();
+    };
+
+    mediaEvents.forEach((eventName) => video.addEventListener(eventName, update));
+    input.addEventListener("input", seek);
+    input.addEventListener("change", seek);
+    ["pointerdown", "click"].forEach((eventName) => {
+        bar.addEventListener(eventName, (event) => event.stopPropagation());
+    });
+
+    let frameId = 0;
+    const refresh = () => {
+        update();
+        frameId = window.requestAnimationFrame(refresh);
+    };
+    refresh();
+
+    artInstance.__youtubeProgressCleanup = () => {
+        window.cancelAnimationFrame(frameId);
+        mediaEvents.forEach((eventName) => video.removeEventListener(eventName, update));
+        input.removeEventListener("input", seek);
+        input.removeEventListener("change", seek);
+        bar.remove();
+    };
+}
+
 function setupArtplayer(streamUrl, subtitleUrl) {
     art = new Artplayer({
         container: '.artplayer-app',
@@ -944,6 +1109,11 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                 html: `<div class="static-watermark">${providedUser}</div>`,
             }
         ],
+    });
+
+    const currentArt = art;
+    window.requestAnimationFrame(() => {
+        if (art === currentArt) installYouTubeProgressBar(currentArt);
     });
 
     art.on('fullscreen', (state) => {
