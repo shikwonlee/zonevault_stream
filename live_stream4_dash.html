@@ -364,6 +364,8 @@ let isUserApproved = false;
    4. For downloads, provide an authorized direct MP4/WebM URL in downloadUrl.
       The MPD/HLS manifest itself is not a downloadable video file.
    ======================================================================== */
+const USE_CONFIGURED_DASH = false;
+
 const DASH_PLAYER_CONFIG = {
     mpdUrl: "https://video-weverse-wmt.kiswe.com/wmt:eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6InZpZGVvLXdldmVyc2Utd210In0.eyJpYXQiOjE3ODkyNzkzMDUsIndtdmVyIjoxLCJ3bXBhdGZtdCI6ImJhc2U2NCIsIndtcGF0IjoiVjhVM0U4VXZhYmZqVzFoZGQ5NTkwODIwNFhxVkZXUXRsTjBHOThwdFhadko1a1RmTkdMTW45b0hHT2NNNm1SdWNKR3ZwRXp3VTJGbkwxS2d6b01HeHc9PSIsIndtcGF0bGVuIjo1MTIsImt1c2VyaWQiOjU0MTIxNDUsImV4cCI6MTc4OTM2NTcwNSwia2FwcCI6InRob3ItcHJvZCJ9.FaigLi6yV-Am1Y-wlGVW5tPsSELh__F7mllXfOPKZPI/media/kiswe_KISWE_118_2026_09_13_04_18_49_406/mix-stream1.mpd", // PASTE YOUR AUTHORIZED .MPD URL HERE
     clearKey: {
@@ -381,8 +383,14 @@ const DASH_PLAYER_CONFIG = {
 
 function destroyDashPlayer() {
     if (dashPlayer) {
-        dashPlayer.destroy().catch(() => {});
+        const player = dashPlayer;
         dashPlayer = null;
+        try {
+            const result = player.destroy();
+            if (result && typeof result.catch === "function") result.catch(() => {});
+        } catch (error) {
+            console.debug("DASH player cleanup failed.");
+        }
     }
     dashVideo = null;
 }
@@ -560,7 +568,7 @@ if (!currentEventId || !providedUser || !activeSessionUser || providedUser !== a
                     isUserApproved = true;
                     document.getElementById("security-overlay").style.display = "none";
                     document.getElementById("main-content").style.display = "block";
-                    document.getElementById("username-badge").innerHTML = `<i class="fas fa-user-check"></i> ${providedUser}`;
+                    document.getElementById("username-badge").innerHTML = `<i class="fas fa-user-check"></i> ${escapeHtml(providedUser)}`;
 
                     checkGuidelinesModal();
 
@@ -633,8 +641,8 @@ function startListeningToEvent(eventId) {
 
         currentEventData.angelthump_channel = (ev.angelthump_channel || "").trim();
         const configuredDashUrl = getConfiguredDashUrl();
-        currentEventData.stream_url = configuredDashUrl || ev.stream_url || ev.url || "";
-        currentEventData.stream_subtitle = configuredDashUrl ? "" : (ev.stream_subtitle || "");
+        currentEventData.stream_url = configuredDashUrl || normalizeMediaUrl(ev.stream_url || ev.url || "");
+        currentEventData.stream_subtitle = ev.stream_subtitle || "";
         currentEventData.download_url = normalizeMediaUrl(
             DASH_PLAYER_CONFIG.downloadUrl || ev.download_url || ev.video_download_url || ""
         );
@@ -707,6 +715,7 @@ function selectServer(serverNum) {
 function showStandby(title, sub) {
     if (!isUserApproved) return;
     if (art) { art.destroy(true); art = null; }
+    destroyDashPlayer();
     activeMediaUrl = "";
     activeSubtitleUrl = "";
     updateDownloadButton();
@@ -714,8 +723,8 @@ function showStandby(title, sub) {
     container.innerHTML = `
         <div class="standby-screen">
             <i class="fas fa-film" style="font-size: 32px; margin-bottom: 16px; opacity: 0.5;"></i>
-            <h2>${title}</h2>
-            <p>${sub || ''}</p>
+            <h2>${escapeHtml(title)}</h2>
+            <p>${escapeHtml(sub || "")}</p>
         </div>
     `;
 }
@@ -745,6 +754,12 @@ function attachStream(videoUrl, subtitleUrl) {
     setupArtplayer(videoUrl, subtitleUrl);
 }
 
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    }[character]));
+}
+
 function normalizeMediaUrl(url) {
     const value = (url || "").trim();
     if (!value) return "";
@@ -755,7 +770,7 @@ function normalizeMediaUrl(url) {
 }
 
 function getConfiguredDashUrl() {
-    return normalizeMediaUrl(DASH_PLAYER_CONFIG.mpdUrl);
+    return USE_CONFIGURED_DASH ? normalizeMediaUrl(DASH_PLAYER_CONFIG.mpdUrl) : '';
 }
 
 function isManifestUrl(url) {
@@ -1252,7 +1267,7 @@ function setupArtplayer(streamUrl, subtitleUrl) {
                 video.playsInline = true;
                 video.setAttribute("playsinline", "");
 
-                if (Hls.isSupported()) {
+                if (window.Hls && Hls.isSupported()) {
                     if (art.hls) art.hls.destroy();
                     const hls = new Hls();
                     hls.loadSource(url); hls.attachMedia(video); art.hls = hls;
@@ -1291,7 +1306,7 @@ function setupArtplayer(streamUrl, subtitleUrl) {
         layers: [
             {
                 name: 'username-watermark',
-                html: `<div class="static-watermark">${providedUser}</div>`,
+                html: `<div class="static-watermark">${escapeHtml(providedUser)}</div>`,
             }
         ],
     });
